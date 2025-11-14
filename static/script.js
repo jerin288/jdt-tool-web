@@ -2,6 +2,11 @@
 let currentTaskId = null;
 let progressInterval = null;
 let downloadFilename = null;
+let hasPreviewData = false;
+
+// Settings Templates
+const TEMPLATES_KEY = 'jdt_pdf_templates';
+const DARK_MODE_KEY = 'jdt_dark_mode';
 
 // DOM Elements
 const uploadForm = document.getElementById('uploadForm');
@@ -17,9 +22,20 @@ const resultDetails = document.getElementById('resultDetails');
 const errorSection = document.getElementById('errorSection');
 const errorMessage = document.getElementById('errorMessage');
 const downloadBtn = document.getElementById('downloadBtn');
+const previewDataBtn = document.getElementById('previewDataBtn');
 const convertAnotherBtn = document.getElementById('convertAnotherBtn');
 const tryAgainBtn = document.getElementById('tryAgainBtn');
 const dropOverlay = document.getElementById('dropOverlay');
+
+// New UI elements
+const darkModeToggle = document.getElementById('darkModeToggle');
+const historyBtn = document.getElementById('historyBtn');
+const templatesBtn = document.getElementById('templatesBtn');
+const templateSelect = document.getElementById('templateSelect');
+const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+const previewModal = document.getElementById('previewModal');
+const historyModal = document.getElementById('historyModal');
+const templateModal = document.getElementById('templateModal');
 
 // File Upload Handling
 fileInput.addEventListener('change', function(e) {
@@ -211,6 +227,14 @@ function showSuccess(progress) {
     resultSection.style.display = 'block';
     
     downloadFilename = progress.output_file;
+    hasPreviewData = progress.has_preview || false;
+    
+    // Show preview button if data is available
+    if (hasPreviewData) {
+        previewDataBtn.style.display = 'inline-flex';
+    } else {
+        previewDataBtn.style.display = 'none';
+    }
     
     // Build result details
     let details = '<div class="result-details">';
@@ -281,4 +305,269 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('pageRange').value = 'all';
     document.getElementById('includeHeaders').checked = true;
     document.getElementById('cleanData').checked = true;
+    
+    // Initialize features
+    initializeDarkMode();
+    loadTemplates();
 });
+
+// ============================================================================
+// DARK MODE FEATURE
+// ============================================================================
+
+function initializeDarkMode() {
+    const isDarkMode = localStorage.getItem(DARK_MODE_KEY) === 'true';
+    if (isDarkMode) {
+        document.body.classList.add('dark-mode');
+        darkModeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+    }
+}
+
+darkModeToggle.addEventListener('click', function() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    localStorage.setItem(DARK_MODE_KEY, isDark);
+    darkModeToggle.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+});
+
+// ============================================================================
+// DATA PREVIEW FEATURE
+// ============================================================================
+
+previewDataBtn.addEventListener('click', async function() {
+    if (!currentTaskId) return;
+    
+    try {
+        const response = await fetch(`/preview-data/${currentTaskId}`);
+        if (!response.ok) {
+            throw new Error('Failed to load preview data');
+        }
+        
+        const data = await response.json();
+        displayPreviewModal(data);
+    } catch (error) {
+        alert('Unable to load preview: ' + error.message);
+    }
+});
+
+function displayPreviewModal(data) {
+    const previewContent = document.getElementById('previewContent');
+    const infoDiv = previewContent.querySelector('.preview-info');
+    const tableWrapper = previewContent.querySelector('.preview-table-wrapper');
+    
+    if (data.columns && data.rows) {
+        // Table data preview
+        infoDiv.innerHTML = `<p><strong>Showing first 50 rows</strong> of ${data.total_rows} total rows</p>`;
+        
+        let tableHTML = '<table class="preview-table"><thead><tr>';
+        data.columns.forEach(col => {
+            tableHTML += `<th>${escapeHtml(String(col))}</th>`;
+        });
+        tableHTML += '</tr></thead><tbody>';
+        
+        data.rows.forEach(row => {
+            tableHTML += '<tr>';
+            row.forEach(cell => {
+                tableHTML += `<td>${escapeHtml(String(cell || ''))}</td>`;
+            });
+            tableHTML += '</tr>';
+        });
+        tableHTML += '</tbody></table>';
+        
+        tableWrapper.innerHTML = tableHTML;
+    } else if (data.text_preview) {
+        // Text data preview
+        infoDiv.innerHTML = '<p><strong>Text Preview</strong> (first 5 pages)</p>';
+        let textHTML = '<div class="text-preview">';
+        data.text_preview.forEach(item => {
+            textHTML += `<div class="text-page"><strong>Page ${item.Page}:</strong><pre>${escapeHtml(String(item.Text).substring(0, 500))}...</pre></div>`;
+        });
+        textHTML += '</div>';
+        tableWrapper.innerHTML = textHTML;
+    }
+    
+    // Show modal with flex display
+    previewModal.style.display = 'flex';
+    previewModal.classList.add('active');
+}
+
+document.getElementById('closePreviewModal').addEventListener('click', function() {
+    previewModal.style.display = 'none';
+    previewModal.classList.remove('active');
+});
+
+// ============================================================================
+// SETTINGS TEMPLATES FEATURE
+// ============================================================================
+
+function loadTemplates() {
+    const templates = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
+    templateSelect.innerHTML = '<option value="">Load a template...</option>';
+    
+    templates.forEach((template, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = template.name;
+        templateSelect.appendChild(option);
+    });
+}
+
+templateSelect.addEventListener('change', function() {
+    if (this.value === '') return;
+    
+    const templates = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
+    const template = templates[parseInt(this.value)];
+    
+    if (template) {
+        applyTemplate(template.settings);
+        this.value = ''; // Reset selection
+    }
+});
+
+function applyTemplate(settings) {
+    document.getElementById('pageRange').value = settings.page_range || 'all';
+    document.getElementById('extractMode').value = settings.extract_mode || 'tables';
+    document.getElementById('outputFormat').value = settings.output_format || 'xlsx';
+    document.getElementById('mergeTables').checked = settings.merge_tables || false;
+    document.getElementById('includeHeaders').checked = settings.include_headers !== false;
+    document.getElementById('cleanData').checked = settings.clean_data !== false;
+}
+
+saveTemplateBtn.addEventListener('click', function() {
+    templateModal.style.display = 'flex';
+    templateModal.classList.add('active');
+    document.getElementById('templateName').value = '';
+    document.getElementById('templateName').focus();
+});
+
+templatesBtn.addEventListener('click', function() {
+    templateModal.style.display = 'flex';
+    templateModal.classList.add('active');
+    document.getElementById('templateName').value = '';
+});
+
+document.getElementById('saveTemplateConfirm').addEventListener('click', function() {
+    const name = document.getElementById('templateName').value.trim();
+    if (!name) {
+        alert('Please enter a template name');
+        return;
+    }
+    
+    const settings = {
+        page_range: document.getElementById('pageRange').value,
+        extract_mode: document.getElementById('extractMode').value,
+        output_format: document.getElementById('outputFormat').value,
+        merge_tables: document.getElementById('mergeTables').checked,
+        include_headers: document.getElementById('includeHeaders').checked,
+        clean_data: document.getElementById('cleanData').checked
+    };
+    
+    const templates = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
+    templates.push({ name, settings });
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+    
+    loadTemplates();
+    templateModal.style.display = 'none';
+    templateModal.classList.remove('active');
+    
+    // Show success message
+    const tempMsg = document.createElement('div');
+    tempMsg.className = 'toast-message';
+    tempMsg.innerHTML = '<i class="fas fa-check"></i> Template saved!';
+    document.body.appendChild(tempMsg);
+    setTimeout(() => tempMsg.remove(), 3000);
+});
+
+document.getElementById('cancelTemplateSave').addEventListener('click', function() {
+    templateModal.style.display = 'none';
+    templateModal.classList.remove('active');
+});
+
+document.getElementById('closeTemplateModal').addEventListener('click', function() {
+    templateModal.style.display = 'none';
+    templateModal.classList.remove('active');
+});
+
+// ============================================================================
+// HISTORY FEATURE
+// ============================================================================
+
+historyBtn.addEventListener('click', async function() {
+    try {
+        const response = await fetch('/history');
+        if (!response.ok) {
+            throw new Error('Failed to load history');
+        }
+        
+        const data = await response.json();
+        displayHistoryModal(data.history);
+    } catch (error) {
+        alert('Unable to load history: ' + error.message);
+    }
+});
+
+function displayHistoryModal(history) {
+    const historyList = document.querySelector('#historyContent .history-list');
+    
+    if (history.length === 0) {
+        historyList.innerHTML = '<p class="empty-message">No conversion history yet</p>';
+    } else {
+        let html = '<div class="history-items">';
+        history.reverse().forEach(item => {
+            const date = new Date(item.timestamp);
+            const statusClass = item.status === 'completed' ? 'success' : item.status === 'error' ? 'error' : 'pending';
+            const statusIcon = item.status === 'completed' ? 'check-circle' : item.status === 'error' ? 'exclamation-circle' : 'spinner';
+            
+            html += `<div class="history-item ${statusClass}">
+                <div class="history-header">
+                    <span class="history-filename"><i class="fas fa-file-pdf"></i> ${escapeHtml(item.filename)}</span>
+                    <span class="history-status"><i class="fas fa-${statusIcon}"></i> ${item.status}</span>
+                </div>
+                <div class="history-details">
+                    <small>${date.toLocaleString()}</small>
+                    ${item.can_download ? `<button class="history-download-btn" onclick="downloadHistoryFile('${item.output_file}')"><i class="fas fa-download"></i> Download</button>` : ''}
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        historyList.innerHTML = html;
+    }
+    
+    historyModal.style.display = 'flex';
+    historyModal.classList.add('active');
+}
+
+function downloadHistoryFile(filename) {
+    window.location.href = `/download/${filename}`;
+}
+
+document.getElementById('closeHistoryModal').addEventListener('click', function() {
+    historyModal.style.display = 'none';
+    historyModal.classList.remove('active');
+});
+
+// Close modals on background click
+window.addEventListener('click', function(e) {
+    if (e.target === previewModal) {
+        previewModal.style.display = 'none';
+        previewModal.classList.remove('active');
+    }
+    if (e.target === historyModal) {
+        historyModal.style.display = 'none';
+        historyModal.classList.remove('active');
+    }
+    if (e.target === templateModal) {
+        templateModal.style.display = 'none';
+        templateModal.classList.remove('active');
+    }
+});
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

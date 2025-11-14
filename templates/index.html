@@ -13,6 +13,17 @@
         <div class="header">
             <h1><i class="fas fa-file-pdf"></i> JDT PDF to Excel Converter</h1>
             <p class="subtitle">Advanced PDF Extraction Tool - Web Edition</p>
+            <div class="header-controls">
+                <button id="darkModeToggle" class="icon-btn" title="Toggle Dark Mode">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button id="historyBtn" class="icon-btn" title="View History">
+                    <i class="fas fa-history"></i>
+                </button>
+                <button id="templatesBtn" class="icon-btn" title="Settings Templates">
+                    <i class="fas fa-save"></i>
+                </button>
+            </div>
         </div>
 
         <!-- Main Form -->
@@ -102,6 +113,16 @@
                 </div>
             </div>
 
+            <!-- Template Controls -->
+            <div class="template-controls">
+                <select id="templateSelect" class="template-select">
+                    <option value="">Load a template...</option>
+                </select>
+                <button type="button" id="saveTemplateBtn" class="template-btn" title="Save current settings as template">
+                    <i class="fas fa-bookmark"></i> Save Template
+                </button>
+            </div>
+
             <!-- Convert Button -->
             <div class="button-wrapper">
                 <button type="submit" id="convertBtn" class="convert-button">
@@ -124,9 +145,14 @@
                 <i class="fas fa-check-circle"></i>
                 <h3>Conversion Successful!</h3>
                 <div id="resultDetails"></div>
-                <button id="downloadBtn" class="download-button">
-                    <i class="fas fa-download"></i> Download File
-                </button>
+                <div class="result-actions">
+                    <button id="previewDataBtn" class="preview-button" style="display:none;">
+                        <i class="fas fa-eye"></i> Preview Data
+                    </button>
+                    <button id="downloadBtn" class="download-button">
+                        <i class="fas fa-download"></i> Download File
+                    </button>
+                </div>
                 <button id="convertAnotherBtn" class="secondary-button">
                     <i class="fas fa-redo"></i> Convert Another
                 </button>
@@ -156,6 +182,61 @@
         <div class="drop-message">
             <i class="fas fa-file-pdf"></i>
             <p>Drop PDF file here</p>
+        </div>
+    </div>
+
+    <!-- Data Preview Modal -->
+    <div id="previewModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-table"></i> Data Preview</h2>
+                <button class="modal-close" id="closePreviewModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="previewContent">
+                <div class="preview-info"></div>
+                <div class="preview-table-wrapper"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-history"></i> Conversion History</h2>
+                <button class="modal-close" id="closeHistoryModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="historyContent">
+                <div class="history-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Save Modal -->
+    <div id="templateModal" class="modal" style="display: none;">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2><i class="fas fa-save"></i> Save Settings Template</h2>
+                <button class="modal-close" id="closeTemplateModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <label for="templateName">Template Name:</label>
+                <input type="text" id="templateName" placeholder="e.g., Financial Reports" class="template-input">
+                <div class="modal-actions">
+                    <button id="saveTemplateConfirm" class="modal-btn primary">
+                        <i class="fas fa-check"></i> Save
+                    </button>
+                    <button id="cancelTemplateSave" class="modal-btn secondary">
+                        Cancel
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 

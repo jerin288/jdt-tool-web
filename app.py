@@ -26,9 +26,16 @@ logger = logging.getLogger(__name__)
 conversion_progress = {}
 conversion_progress_lock = threading.Lock()
 
+# Store conversion results for preview
+conversion_results = {}
+conversion_results_lock = threading.Lock()
+
+# Store file history per session
+file_history = {}
+file_history_lock = threading.Lock()
+
 # Maximum age for tasks in memory (1 hour)
 MAX_TASK_AGE = timedelta(hours=1)
-task_timestamps = {}
 task_timestamps = {}
 
 class PDFConverter:
@@ -194,6 +201,30 @@ class PDFConverter:
                         text_df = pd.DataFrame(all_text)
                         text_df.to_csv(output_path, index=False)
                 
+                # Store preview data (first 50 rows)
+                preview_data = None
+                if all_tables:
+                    preview_df = all_tables[0].head(50)
+                    # Replace NaN with None for JSON serialization
+                    preview_df = preview_df.fillna('')
+                    preview_data = {
+                        'columns': preview_df.columns.tolist(),
+                        'rows': preview_df.values.tolist(),
+                        'total_rows': len(all_tables[0])
+                    }
+                elif all_text:
+                    preview_data = {
+                        'text_preview': all_text[:5]  # First 5 pages
+                    }
+                
+                with conversion_results_lock:
+                    conversion_results[task_id] = {
+                        'preview_data': preview_data,
+                        'output_path': output_path,
+                        'output_filename': output_filename,
+                        'timestamp': datetime.now()
+                    }
+                
                 # Success
                 with conversion_progress_lock:
                     conversion_progress[task_id] = {
@@ -202,7 +233,8 @@ class PDFConverter:
                         'message': 'Conversion completed successfully!',
                         'output_file': output_filename,
                         'table_count': len(all_tables),
-                        'text_count': len(all_text)
+                        'text_count': len(all_text),
+                        'has_preview': preview_data is not None
                     }
                 
                 return output_path
@@ -268,6 +300,23 @@ def upload_file():
             conversion_progress[task_id] = {'status': 'started', 'progress': 0}
             task_timestamps[task_id] = datetime.now()
         
+        # Store in session history
+        if 'user_id' not in session:
+            session['user_id'] = str(uuid.uuid4())
+        
+        user_id = session['user_id']
+        with file_history_lock:
+            if user_id not in file_history:
+                file_history[user_id] = []
+            file_history[user_id].append({
+                'task_id': task_id,
+                'filename': filename,
+                'timestamp': datetime.now().isoformat(),
+                'options': options
+            })
+            # Keep only last 10 conversions per user
+            file_history[user_id] = file_history[user_id][-10:]
+        
         # Start conversion in background thread
         thread = threading.Thread(
             target=PDFConverter.convert_pdf,
@@ -308,8 +357,30 @@ def get_progress(task_id):
 
 @app.route('/download/<filename>')
 def download_file(filename):
-    """Download converted file"""
+    """Download converted file - user-isolated"""
     try:
+        # Verify user is logged in
+        if 'user_id' not in session:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        user_id = session['user_id']
+        
+        # Verify this file belongs to the user by checking their history
+        with file_history_lock:
+            user_history = file_history.get(user_id, [])
+            authorized = False
+            
+            for item in user_history:
+                task_id = item['task_id']
+                with conversion_progress_lock:
+                    if conversion_progress.get(task_id, {}).get('output_file') == filename:
+                        authorized = True
+                        break
+            
+            if not authorized:
+                logger.warning(f"Unauthorized download attempt: user {user_id[:8]} tried to access {filename}")
+                return jsonify({'error': 'Unauthorized access'}), 403
+        
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if os.path.exists(filepath):
             # Determine MIME type
@@ -342,6 +413,74 @@ def download_file(filename):
             return jsonify({'error': 'File not found'}), 404
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/preview-data/<task_id>')
+def preview_data(task_id):
+    """Get preview of converted data before download - user-isolated"""
+    try:
+        # Verify user owns this task
+        if 'user_id' not in session:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        user_id = session['user_id']
+        
+        # Check if this task belongs to the user
+        with file_history_lock:
+            user_history = file_history.get(user_id, [])
+            task_ids = [item['task_id'] for item in user_history]
+            
+            if task_id not in task_ids:
+                return jsonify({'error': 'Unauthorized access'}), 403
+        
+        with conversion_results_lock:
+            if task_id not in conversion_results:
+                return jsonify({'error': 'Preview data not available'}), 404
+            
+            result = conversion_results[task_id]
+            preview = result.get('preview_data')
+            
+            if not preview:
+                return jsonify({'error': 'No preview data available'}), 404
+            
+            return jsonify(preview), 200
+    except Exception as e:
+        logger.error(f"Preview error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/history')
+def get_history():
+    """Get user's conversion history - isolated per session"""
+    try:
+        # Ensure user has a session ID
+        if 'user_id' not in session:
+            session['user_id'] = str(uuid.uuid4())
+        
+        user_id = session['user_id']
+        
+        with file_history_lock:
+            # Only return this user's history
+            history = file_history.get(user_id, [])
+            
+            # Enrich with current status (only for this user's tasks)
+            enriched_history = []
+            for item in history:
+                task_id = item['task_id']
+                with conversion_progress_lock:
+                    progress = conversion_progress.get(task_id, {})
+                    status = progress.get('status', 'unknown')
+                    output_file = progress.get('output_file')
+                
+                enriched_history.append({
+                    **item,
+                    'status': status,
+                    'output_file': output_file,
+                    'can_download': status == 'completed' and output_file is not None
+                })
+            
+            return jsonify({'history': enriched_history}), 200
+    except Exception as e:
+        logger.error(f"History error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/cleanup')
@@ -380,11 +519,50 @@ def cleanup_old_files():
                     del task_timestamps[task_id]
                 deleted_tasks += 1
         
+        # Clean up old conversion results
+        with conversion_results_lock:
+            results_to_remove = []
+            for task_id, result in conversion_results.items():
+                if now - result['timestamp'] > MAX_TASK_AGE:
+                    results_to_remove.append(task_id)
+            
+            for task_id in results_to_remove:
+                del conversion_results[task_id]
+        
+        # Clean up old history entries
+        with file_history_lock:
+            for user_id in list(file_history.keys()):
+                history_items = file_history[user_id]
+                # Remove items older than 1 hour
+                file_history[user_id] = [
+                    item for item in history_items
+                    if now - datetime.fromisoformat(item['timestamp']) < MAX_TASK_AGE
+                ]
+                # Remove user if no history left
+                if not file_history[user_id]:
+                    del file_history[user_id]
+        
         return jsonify({'deleted_files': deleted_files, 'deleted_tasks': deleted_tasks}), 200
     except Exception as e:
         logger.error(f"Cleanup error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+def automatic_cleanup():
+    """Background thread for automatic cleanup every 30 minutes"""
+    while True:
+        time.sleep(1800)  # 30 minutes
+        try:
+            with app.app_context():
+                cleanup_old_files()
+                logger.info("Automatic cleanup completed")
+        except Exception as e:
+            logger.error(f"Automatic cleanup error: {e}")
+
 if __name__ == '__main__':
+    # Start automatic cleanup thread
+    cleanup_thread = threading.Thread(target=automatic_cleanup, daemon=True)
+    cleanup_thread.start()
+    logger.info("Automatic cleanup thread started (runs every 30 minutes)")
+    
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', debug=False, port=port)
