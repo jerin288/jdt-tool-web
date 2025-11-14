@@ -59,18 +59,13 @@ class User(UserMixin, db.Model):
         return max(0, self.total_credits - self.used_credits)
     
     def reset_daily_credits(self):
-        """Reset to 3 daily credits if below 3"""
+        """Add 3 daily credits if all credits are used (never reduce existing credits)"""
         today = datetime.utcnow().date()
         if self.last_reset_date < today:
             if self.used_credits >= self.total_credits:
-                # Reset both to 3
-                self.total_credits = 3
-                self.used_credits = 0
-            else:
-                # Just ensure they have at least 3 available
-                available = self.get_available_credits()
-                if available < 3:
-                    self.total_credits += (3 - available)
+                # All credits used - add 3 more daily credits
+                self.total_credits += 3
+                # Don't reset used_credits - keep the history
             self.last_reset_date = today
             db.session.commit()
     
