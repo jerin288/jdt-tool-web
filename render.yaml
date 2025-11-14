@@ -9,16 +9,12 @@ services:
         value: 3.11.0
       - key: SECRET_KEY
         generateValue: true
-      - key: MAIL_SERVER
-        value: smtp.gmail.com
-      - key: MAIL_PORT
-        value: 587
-      - key: MAIL_USERNAME
+      - key: GOOGLE_CLIENT_ID
         sync: false  # Set this in Render dashboard
-      - key: MAIL_PASSWORD
-        sync: false  # Set this in Render dashboard (use Gmail App Password)
-      - key: MAIL_FROM_EMAIL
-        value: noreply@jdpdftoexcel.online
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false  # Set this in Render dashboard
+      - key: APP_URL
+        value: https://jdpdftoexcel.online
     # Custom domain configuration
     # Add your domain in Render Dashboard: Settings > Custom Domain
     # Domain: jdpdftoexcel.online

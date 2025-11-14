@@ -794,7 +794,6 @@ function setupAuthEventListeners() {
     const loginBtn = document.getElementById('loginBtn');
     const loginModal = document.getElementById('loginModal');
     const closeLoginModal = document.getElementById('closeLoginModal');
-    const loginForm = document.getElementById('loginForm');
     const userMenuBtn = document.getElementById('userMenuBtn');
     const userDropdown = document.getElementById('userDropdown');
     const logoutBtn = document.getElementById('logoutBtn');
@@ -811,10 +810,12 @@ function setupAuthEventListeners() {
             const urlParams = new URLSearchParams(window.location.search);
             const refCode = urlParams.get('ref');
             if (refCode) {
-                document.getElementById('referralCodeInput').value = refCode.toUpperCase();
+                document.getElementById('loginReferralCode').value = refCode.toUpperCase();
             }
             loginModal.style.display = 'flex';
             loginModal.classList.add('active');
+            // Reset to login mode
+            setAuthMode('login');
         });
     }
     
@@ -823,60 +824,121 @@ function setupAuthEventListeners() {
         closeLoginModal.addEventListener('click', function() {
             loginModal.style.display = 'none';
             loginModal.classList.remove('active');
+            document.getElementById('authError').style.display = 'none';
         });
     }
     
-    // Login form submission
-    if (loginForm) {
-        loginForm.addEventListener('submit', async function(e) {
+    // Toggle between login and signup
+    const toggleAuthMode = document.getElementById('toggleAuthMode');
+    let currentAuthMode = 'login';
+    
+    function setAuthMode(mode) {
+        currentAuthMode = mode;
+        const submitBtn = document.getElementById('loginSubmitBtn');
+        const modalHeader = document.querySelector('#loginModal .modal-header h2');
+        const passwordConfirmGroup = document.getElementById('signupPasswordConfirmGroup');
+        const referralCodeGroup = document.getElementById('referralCodeGroup');
+        
+        if (mode === 'signup') {
+            submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Sign Up';
+            modalHeader.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
+            toggleAuthMode.textContent = 'Already have an account? Login';
+            passwordConfirmGroup.style.display = 'block';
+            referralCodeGroup.style.display = 'block';
+        } else {
+            submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+            modalHeader.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login to Continue';
+            toggleAuthMode.textContent = 'Don\'t have an account? Sign up';
+            passwordConfirmGroup.style.display = 'none';
+            referralCodeGroup.style.display = 'none';
+        }
+        document.getElementById('authError').style.display = 'none';
+    }
+    
+    if (toggleAuthMode) {
+        toggleAuthMode.addEventListener('click', function(e) {
+            e.preventDefault();
+            setAuthMode(currentAuthMode === 'login' ? 'signup' : 'login');
+        });
+    }
+    
+    // Handle login/signup form submission
+    const authForm = document.getElementById('loginForm');
+    if (authForm) {
+        authForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const email = document.getElementById('loginEmail').value.trim();
-            const referralCode = document.getElementById('referralCodeInput').value.trim();
-            const sendBtn = document.getElementById('sendMagicLinkBtn');
-            const messageDiv = document.getElementById('loginMessage');
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('authError');
+            const submitBtn = document.getElementById('loginSubmitBtn');
             
-            sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+            // Validation
+            if (!email || !password) {
+                errorDiv.textContent = 'Please enter email and password';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            if (currentAuthMode === 'signup') {
+                const passwordConfirm = document.getElementById('signupPasswordConfirm').value;
+                if (password !== passwordConfirm) {
+                    errorDiv.textContent = 'Passwords do not match';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                if (password.length < 6) {
+                    errorDiv.textContent = 'Password must be at least 6 characters';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+            }
+            
+            // Disable button during request
+            submitBtn.disabled = true;
+            submitBtn.textContent = currentAuthMode === 'signup' ? 'Creating account...' : 'Logging in...';
+            errorDiv.style.display = 'none';
             
             try {
-                const response = await fetch('/auth/send-magic-link', {
+                const endpoint = currentAuthMode === 'signup' ? '/auth/signup' : '/auth/login';
+                const payload = {
+                    email: email,
+                    password: password
+                };
+                
+                if (currentAuthMode === 'signup') {
+                    const referralCode = document.getElementById('loginReferralCode').value.trim().toUpperCase();
+                    if (referralCode) {
+                        payload.referral_code = referralCode;
+                    }
+                }
+                
+                const response = await fetch(endpoint, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({email, referral_code: referralCode})
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload)
                 });
                 
                 const data = await response.json();
                 
-                if (response.ok) {
-                    messageDiv.style.display = 'block';
-                    messageDiv.className = 'login-message success';
-                    messageDiv.innerHTML = `
-                        <i class="fas fa-check-circle"></i>
-                        <strong>Check your email!</strong><br>
-                        We've sent you a login link. Click it to access your account.
-                    `;
-                    loginForm.reset();
+                if (response.ok && data.success) {
+                    // Success - reload page
+                    window.location.reload();
                 } else {
-                    messageDiv.style.display = 'block';
-                    messageDiv.className = 'login-message error';
-                    messageDiv.innerHTML = `
-                        <i class="fas fa-exclamation-circle"></i>
-                        ${data.error || 'Failed to send login link'}
-                    `;
+                    // Show error
+                    errorDiv.textContent = data.error || 'Authentication failed';
+                    errorDiv.style.display = 'block';
                 }
             } catch (error) {
-                console.error('Fetch error:', error);
-                messageDiv.style.display = 'block';
-                messageDiv.className = 'login-message error';
-                messageDiv.innerHTML = `
-                    <i class="fas fa-exclamation-circle"></i>
-                    Network error. Please try again.<br>
-                    <small>${error.message}</small>
-                `;
+                console.error('Auth error:', error);
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
             } finally {
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Login Link';
+                // Re-enable button
+                submitBtn.disabled = false;
+                setAuthMode(currentAuthMode); // Reset button text
             }
         });
     }

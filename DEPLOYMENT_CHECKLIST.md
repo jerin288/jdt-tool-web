@@ -48,6 +48,12 @@ git push origin main
 ### 2. Railway Auto-Deploy
 ✅ Railway will automatically detect the push
 ✅ Will rebuild with new code
+
+### 3. Custom Domain Configuration
+✅ Domain: **jdpdftoexcel.online**
+- Add custom domain in Railway dashboard
+- Configure DNS settings with your domain registrar
+- Point domain to Railway's provided URL
 ✅ Should deploy in 2-3 minutes
 ✅ No configuration changes needed
 

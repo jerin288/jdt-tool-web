@@ -10,13 +10,11 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_mail import Mail, Message
 from werkzeug.utils import secure_filename
 import pandas as pd
 import pdfplumber
 import uuid
 from datetime import datetime, timedelta
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
@@ -29,32 +27,14 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///jdt_users.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Email configuration
-app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
-app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')  # Use MAIL_USERNAME as sender
-app.config['MAIL_MAX_EMAILS'] = None
-app.config['MAIL_ASCII_ATTACHMENTS'] = False
-
 # Initialize extensions
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'index'
-mail = Mail(app)
-serializer = URLSafeTimedSerializer(app.secret_key)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Log email configuration on startup
-logger.info(f"Email Config - Server: {app.config.get('MAIL_SERVER')}, Port: {app.config.get('MAIL_PORT')}")
-logger.info(f"Email Config - Username: {app.config.get('MAIL_USERNAME')}")
-logger.info(f"Email Config - Has Password: {bool(app.config.get('MAIL_PASSWORD'))}")
 
 # Database Models
 class User(UserMixin, db.Model):
@@ -62,6 +42,7 @@ class User(UserMixin, db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password = db.Column(db.String(255), nullable=False)  # Store password hash
     referral_code = db.Column(db.String(10), unique=True, nullable=False, index=True)
     referred_by_code = db.Column(db.String(10), nullable=True)
     total_credits = db.Column(db.Integer, default=3)  # Starting credits
@@ -92,6 +73,16 @@ class User(UserMixin, db.Model):
                     self.total_credits += (3 - available)
             self.last_reset_date = today
             db.session.commit()
+    
+    def set_password(self, password):
+        """Hash and set password"""
+        from werkzeug.security import generate_password_hash
+        self.password = generate_password_hash(password)
+    
+    def check_password(self, password):
+        """Check if password matches"""
+        from werkzeug.security import check_password_hash
+        return check_password_hash(self.password, password)
     
     @staticmethod
     def generate_referral_code():
@@ -370,154 +361,115 @@ def test_endpoint():
 
 # ==================== Authentication Routes ====================
 
-@app.route('/auth/send-magic-link', methods=['POST'])
-def send_magic_link():
-    """Send magic link to user's email"""
+@app.route('/auth/signup', methods=['POST'])
+def signup():
+    """Create new user account"""
     try:
-        logger.info("=== Magic link request received ===")
         data = request.get_json()
-        logger.info(f"Request data: {data}")
-        
         email = data.get('email', '').strip().lower()
+        password = data.get('password', '').strip()
         referral_code = data.get('referral_code', '').strip().upper()
         
-        logger.info(f"Processing email: {email}")
+        if not email or not password:
+            return jsonify({'error': 'Email and password required'}), 400
         
-        if not email:
-            return jsonify({'error': 'Email is required'}), 400
+        if len(password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
         
-        # Validate email format
-        if '@' not in email or '.' not in email:
-            return jsonify({'error': 'Invalid email format'}), 400
+        # Check if user already exists
+        if User.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email already registered'}), 400
         
-        # Check or create user
-        user = User.query.filter_by(email=email).first()
-        is_new_user = False
+        # Create new user
+        user = User(
+            email=email,
+            referral_code=User.generate_referral_code(),
+            referred_by_code=referral_code if referral_code else None,
+            total_credits=3,
+            used_credits=0
+        )
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
         
-        if not user:
-            # Create new user
-            user = User(
-                email=email,
-                referral_code=User.generate_referral_code(),
-                referred_by_code=referral_code if referral_code else None,
-                total_credits=3,
-                used_credits=0
-            )
-            db.session.add(user)
-            db.session.commit()
-            is_new_user = True
-            
-            # Award referral credits if referred
-            if referral_code:
-                referrer = User.query.filter_by(referral_code=referral_code).first()
-                if referrer and referrer.email != email:
-                    # Check if not already logged
-                    existing_log = ReferralLog.query.filter_by(
-                        referrer_id=referrer.id,
-                        referee_email=email
-                    ).first()
+        # Award referral credits if referred
+        if referral_code:
+            referrer = User.query.filter_by(referral_code=referral_code).first()
+            if referrer and referrer.email != email:
+                # Check if not already logged
+                existing_log = ReferralLog.query.filter_by(
+                    referrer_id=referrer.id,
+                    referee_email=email
+                ).first()
+                
+                if not existing_log:
+                    # Award 5 credits to referrer
+                    referrer.total_credits += 5
                     
-                    if not existing_log:
-                        # Award 5 credits to referrer
-                        referrer.total_credits += 5
-                        
-                        # Log the referral
-                        ref_log = ReferralLog(
-                            referrer_id=referrer.id,
-                            referee_email=email,
-                            credited=True
-                        )
-                        db.session.add(ref_log)
-                        db.session.commit()
-                        logger.info(f"Awarded 5 credits to {referrer.email} for referring {email}")
-        else:
-            # Reset daily credits if needed
-            user.reset_daily_credits()
+                    # Log the referral
+                    ref_log = ReferralLog(
+                        referrer_id=referrer.id,
+                        referee_email=email,
+                        credited=True
+                    )
+                    db.session.add(ref_log)
+                    db.session.commit()
+                    logger.info(f"Awarded 5 credits to {referrer.email} for referring {email}")
         
-        # Generate magic link token
-        token = serializer.dumps(email, salt='magic-link')
-        
-        # Build magic link with proper domain for production
-        base_url = os.environ.get('APP_URL', request.host_url.rstrip('/'))
-        magic_link = f"{base_url}/auth/verify/{token}"
-        
-        # Send email
-        try:
-            msg = Message(
-                'Your JDT PDF Converter Login Link',
-                sender=app.config['MAIL_USERNAME'],
-                recipients=[email]
-            )
-            msg.html = f'''
-            <html>
-                <body style="font-family: Arial, sans-serif; padding: 20px;">
-                    <h2>Welcome {'back' if not is_new_user else ''} to JDT PDF Converter!</h2>
-                    <p>Click the button below to log in to your account:</p>
-                    <p style="margin: 30px 0;">
-                        <a href="{magic_link}" 
-                           style="background-color: #4CAF50; color: white; padding: 12px 30px; 
-                                  text-decoration: none; border-radius: 5px; display: inline-block;">
-                            Log In to JDT PDF Converter
-                        </a>
-                    </p>
-                    <p style="color: #666; font-size: 14px;">
-                        This link will expire in 15 minutes.
-                    </p>
-                    {f'<p style="margin-top: 30px; padding: 15px; background-color: #e8f5e9; border-radius: 5px;"><strong>🎉 Welcome Bonus:</strong> You start with 3 free conversions!</p>' if is_new_user else ''}
-                    <p style="margin-top: 30px; font-size: 12px; color: #999;">
-                        If you didn't request this, please ignore this email.
-                    </p>
-                </body>
-            </html>
-            '''
-            
-            logger.info(f"Attempting to send email to {email}")
-            logger.info(f"MAIL_SERVER: {app.config['MAIL_SERVER']}, PORT: {app.config['MAIL_PORT']}")
-            logger.info(f"MAIL_USERNAME: {app.config['MAIL_USERNAME']}")
-            
-            mail.send(msg)
-            logger.info(f"Magic link sent successfully to {email}")
-        except Exception as e:
-            logger.error(f"Failed to send email to {email}: {str(e)}", exc_info=True)
-            return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
+        # Log user in
+        login_user(user, remember=True)
+        logger.info(f"New user registered: {email}")
         
         return jsonify({
             'success': True,
-            'message': 'Check your email for the login link!',
-            'is_new_user': is_new_user
-        }), 200
+            'user': {
+                'email': user.email,
+                'credits': user.get_available_credits(),
+                'referral_code': user.referral_code
+            }
+        }), 201
         
     except Exception as e:
-        logger.error(f"Magic link error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Signup error: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Signup failed'}), 500
 
-@app.route('/auth/verify/<token>')
-def verify_magic_link(token):
-    """Verify magic link token and log user in"""
+@app.route('/auth/login', methods=['POST'])
+def login():
+    """Login with email and password"""
     try:
-        # Verify token (15 minutes expiry)
-        email = serializer.loads(token, salt='magic-link', max_age=900)
+        data = request.get_json()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '').strip()
         
+        if not email or not password:
+            return jsonify({'error': 'Email and password required'}), 400
+        
+        # Find user
         user = User.query.filter_by(email=email).first()
-        if not user:
-            return render_template('index.html', error='User not found'), 404
         
-        # Reset daily credits
+        if not user or not user.check_password(password):
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Reset daily credits if needed
         user.reset_daily_credits()
         
         # Log user in
         login_user(user, remember=True)
         logger.info(f"User logged in: {email}")
         
-        return redirect(url_for('index'))
+        return jsonify({
+            'success': True,
+            'user': {
+                'email': user.email,
+                'credits': user.get_available_credits(),
+                'referral_code': user.referral_code
+            }
+        }), 200
         
-    except SignatureExpired:
-        return render_template('index.html', error='Login link expired. Please request a new one.'), 400
-    except BadSignature:
-        return render_template('index.html', error='Invalid login link'), 400
     except Exception as e:
-        logger.error(f"Verify error: {str(e)}")
-        return render_template('index.html', error='Login failed'), 500
+        logger.error(f"Login error: {str(e)}")
+        return jsonify({'error': 'Login failed'}), 500
 
 @app.route('/auth/logout', methods=['POST'])
 @login_required
