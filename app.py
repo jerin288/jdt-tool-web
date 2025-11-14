@@ -436,7 +436,10 @@ def send_magic_link():
         
         # Generate magic link token
         token = serializer.dumps(email, salt='magic-link')
-        magic_link = url_for('verify_magic_link', token=token, _external=True)
+        
+        # Build magic link with proper domain for production
+        base_url = os.environ.get('APP_URL', request.host_url.rstrip('/'))
+        magic_link = f"{base_url}/auth/verify/{token}"
         
         # Send email
         try:
