@@ -1109,3 +1109,19 @@ function setupAuthEventListeners() {
         });
     }
 }
+// Copy UPI ID function
+function copyUPI() {
+    const upiId = 'jerinad123@pingpay';
+    navigator.clipboard.writeText(upiId).then(() => {
+        const btn = event.target.closest('button');
+        const icon = btn.querySelector('i');
+        icon.className = 'fas fa-check';
+        btn.style.color = '#4caf50';
+        setTimeout(() => {
+            icon.className = 'fas fa-copy';
+            btn.style.color = '';
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy UPI ID');
+    });
+}

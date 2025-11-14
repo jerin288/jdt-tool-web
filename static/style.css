@@ -1712,3 +1712,189 @@ body.dark-mode .footer p {
     background: #667eea;
     color: white;
 }
+
+/* Pricing Section Styles */
+.pricing-section {
+    background: #f8f9fa;
+    border-radius: 15px;
+    padding: 25px;
+    margin-top: 25px;
+}
+
+.pricing-section h3 {
+    color: #667eea;
+    margin-bottom: 10px;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pricing-info {
+    color: #666;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.pricing-plans {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.pricing-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 20px 15px;
+    text-align: center;
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+}
+
+.pricing-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+}
+
+.pricing-card.popular {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.pricing-card.best-value {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.popular-badge {
+    position: absolute;
+    top: 10px;
+    right: -30px;
+    background: #ffd700;
+    color: #333;
+    padding: 3px 35px;
+    font-size: 11px;
+    font-weight: bold;
+    transform: rotate(45deg);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.plan-credits {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.plan-price {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.payment-info {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    border-left: 4px solid #667eea;
+}
+
+.payment-info h4 {
+    color: #667eea;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.payment-info ol {
+    margin-left: 20px;
+    color: #555;
+}
+
+.payment-info li {
+    margin-bottom: 12px;
+    line-height: 1.6;
+}
+
+.email-link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.3s;
+}
+
+.email-link:hover {
+    color: #764ba2;
+    text-decoration: underline;
+}
+
+.upi-id {
+    color: #f5576c;
+    background: #fff3f3;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+}
+
+.copy-upi-btn {
+    background: none;
+    border: none;
+    color: #667eea;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.3s;
+    margin-left: 5px;
+}
+
+.copy-upi-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+/* Dark Mode - Pricing */
+.dark-mode .pricing-section {
+    background: #2c2c2c;
+}
+
+.dark-mode .pricing-info {
+    color: #b0b0b0;
+}
+
+.dark-mode .payment-info {
+    background: #1e1e1e;
+    border-left-color: #8b9cff;
+}
+
+.dark-mode .payment-info h4 {
+    color: #8b9cff;
+}
+
+.dark-mode .payment-info li {
+    color: #b0b0b0;
+}
+
+.dark-mode .email-link {
+    color: #8b9cff;
+}
+
+.dark-mode .email-link:hover {
+    color: #a8b6ff;
+}
+
+.dark-mode .upi-id {
+    background: #3a2a2a;
+    color: #ff8ba0;
+}
+
+.dark-mode .copy-upi-btn {
+    color: #8b9cff;
+}
+
+.dark-mode .copy-upi-btn:hover {
+    background: #667eea;
+    color: white;
+}
