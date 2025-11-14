@@ -4,23 +4,125 @@ import logging
 import tempfile
 import threading
 import time
+import secrets
+import string
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file, session
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_mail import Mail, Message
 from werkzeug.utils import secure_filename
 import pandas as pd
 import pdfplumber
 import uuid
 from datetime import datetime, timedelta
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
+
+# Database configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///jdt_users.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Email configuration
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')  # Use MAIL_USERNAME as sender
+app.config['MAIL_MAX_EMAILS'] = None
+app.config['MAIL_ASCII_ATTACHMENTS'] = False
+
+# Initialize extensions
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'index'
+mail = Mail(app)
+serializer = URLSafeTimedSerializer(app.secret_key)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Log email configuration on startup
+logger.info(f"Email Config - Server: {app.config.get('MAIL_SERVER')}, Port: {app.config.get('MAIL_PORT')}")
+logger.info(f"Email Config - Username: {app.config.get('MAIL_USERNAME')}")
+logger.info(f"Email Config - Has Password: {bool(app.config.get('MAIL_PASSWORD'))}")
+
+# Database Models
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    referral_code = db.Column(db.String(10), unique=True, nullable=False, index=True)
+    referred_by_code = db.Column(db.String(10), nullable=True)
+    total_credits = db.Column(db.Integer, default=3)  # Starting credits
+    used_credits = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_reset_date = db.Column(db.Date, default=datetime.utcnow().date)
+    
+    # Relationships
+    referrals = db.relationship('ReferralLog', foreign_keys='ReferralLog.referrer_id', backref='referrer', lazy='dynamic')
+    conversions = db.relationship('Conversion', backref='user', lazy='dynamic')
+    
+    def get_available_credits(self):
+        """Calculate available credits"""
+        return max(0, self.total_credits - self.used_credits)
+    
+    def reset_daily_credits(self):
+        """Reset to 3 daily credits if below 3"""
+        today = datetime.utcnow().date()
+        if self.last_reset_date < today:
+            if self.used_credits >= self.total_credits:
+                # Reset both to 3
+                self.total_credits = 3
+                self.used_credits = 0
+            else:
+                # Just ensure they have at least 3 available
+                available = self.get_available_credits()
+                if available < 3:
+                    self.total_credits += (3 - available)
+            self.last_reset_date = today
+            db.session.commit()
+    
+    @staticmethod
+    def generate_referral_code():
+        """Generate unique 8-character referral code"""
+        chars = string.ascii_uppercase + string.digits
+        while True:
+            code = ''.join(secrets.choice(chars) for _ in range(8))
+            if not User.query.filter_by(referral_code=code).first():
+                return code
+
+class ReferralLog(db.Model):
+    __tablename__ = 'referral_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    referrer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    referee_email = db.Column(db.String(255), nullable=False)
+    signup_date = db.Column(db.DateTime, default=datetime.utcnow)
+    credited = db.Column(db.Boolean, default=False)
+
+class Conversion(db.Model):
+    __tablename__ = 'conversions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    task_id = db.Column(db.String(100), unique=True)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 # Store conversion progress with thread safety
 conversion_progress = {}
@@ -257,12 +359,256 @@ class PDFConverter:
 @app.route('/')
 def index():
     """Render the main page"""
+    logger.info("=== Index page accessed ===")
     return render_template('index.html')
 
+@app.route('/test-endpoint', methods=['GET', 'POST'])
+def test_endpoint():
+    """Test endpoint to verify server receives requests"""
+    logger.info(f"=== TEST ENDPOINT HIT - Method: {request.method} ===")
+    return jsonify({'status': 'success', 'message': 'Server is receiving requests!'})
+
+# ==================== Authentication Routes ====================
+
+@app.route('/auth/send-magic-link', methods=['POST'])
+def send_magic_link():
+    """Send magic link to user's email"""
+    try:
+        logger.info("=== Magic link request received ===")
+        data = request.get_json()
+        logger.info(f"Request data: {data}")
+        
+        email = data.get('email', '').strip().lower()
+        referral_code = data.get('referral_code', '').strip().upper()
+        
+        logger.info(f"Processing email: {email}")
+        
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        # Validate email format
+        if '@' not in email or '.' not in email:
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        # Check or create user
+        user = User.query.filter_by(email=email).first()
+        is_new_user = False
+        
+        if not user:
+            # Create new user
+            user = User(
+                email=email,
+                referral_code=User.generate_referral_code(),
+                referred_by_code=referral_code if referral_code else None,
+                total_credits=3,
+                used_credits=0
+            )
+            db.session.add(user)
+            db.session.commit()
+            is_new_user = True
+            
+            # Award referral credits if referred
+            if referral_code:
+                referrer = User.query.filter_by(referral_code=referral_code).first()
+                if referrer and referrer.email != email:
+                    # Check if not already logged
+                    existing_log = ReferralLog.query.filter_by(
+                        referrer_id=referrer.id,
+                        referee_email=email
+                    ).first()
+                    
+                    if not existing_log:
+                        # Award 5 credits to referrer
+                        referrer.total_credits += 5
+                        
+                        # Log the referral
+                        ref_log = ReferralLog(
+                            referrer_id=referrer.id,
+                            referee_email=email,
+                            credited=True
+                        )
+                        db.session.add(ref_log)
+                        db.session.commit()
+                        logger.info(f"Awarded 5 credits to {referrer.email} for referring {email}")
+        else:
+            # Reset daily credits if needed
+            user.reset_daily_credits()
+        
+        # Generate magic link token
+        token = serializer.dumps(email, salt='magic-link')
+        magic_link = url_for('verify_magic_link', token=token, _external=True)
+        
+        # Send email
+        try:
+            msg = Message(
+                'Your JDT PDF Converter Login Link',
+                sender=app.config['MAIL_USERNAME'],
+                recipients=[email]
+            )
+            msg.html = f'''
+            <html>
+                <body style="font-family: Arial, sans-serif; padding: 20px;">
+                    <h2>Welcome {'back' if not is_new_user else ''} to JDT PDF Converter!</h2>
+                    <p>Click the button below to log in to your account:</p>
+                    <p style="margin: 30px 0;">
+                        <a href="{magic_link}" 
+                           style="background-color: #4CAF50; color: white; padding: 12px 30px; 
+                                  text-decoration: none; border-radius: 5px; display: inline-block;">
+                            Log In to JDT PDF Converter
+                        </a>
+                    </p>
+                    <p style="color: #666; font-size: 14px;">
+                        This link will expire in 15 minutes.
+                    </p>
+                    {f'<p style="margin-top: 30px; padding: 15px; background-color: #e8f5e9; border-radius: 5px;"><strong>🎉 Welcome Bonus:</strong> You start with 3 free conversions!</p>' if is_new_user else ''}
+                    <p style="margin-top: 30px; font-size: 12px; color: #999;">
+                        If you didn't request this, please ignore this email.
+                    </p>
+                </body>
+            </html>
+            '''
+            
+            logger.info(f"Attempting to send email to {email}")
+            logger.info(f"MAIL_SERVER: {app.config['MAIL_SERVER']}, PORT: {app.config['MAIL_PORT']}")
+            logger.info(f"MAIL_USERNAME: {app.config['MAIL_USERNAME']}")
+            
+            mail.send(msg)
+            logger.info(f"Magic link sent successfully to {email}")
+        except Exception as e:
+            logger.error(f"Failed to send email to {email}: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
+        
+        return jsonify({
+            'success': True,
+            'message': 'Check your email for the login link!',
+            'is_new_user': is_new_user
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Magic link error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/auth/verify/<token>')
+def verify_magic_link(token):
+    """Verify magic link token and log user in"""
+    try:
+        # Verify token (15 minutes expiry)
+        email = serializer.loads(token, salt='magic-link', max_age=900)
+        
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return render_template('index.html', error='User not found'), 404
+        
+        # Reset daily credits
+        user.reset_daily_credits()
+        
+        # Log user in
+        login_user(user, remember=True)
+        logger.info(f"User logged in: {email}")
+        
+        return redirect(url_for('index'))
+        
+    except SignatureExpired:
+        return render_template('index.html', error='Login link expired. Please request a new one.'), 400
+    except BadSignature:
+        return render_template('index.html', error='Invalid login link'), 400
+    except Exception as e:
+        logger.error(f"Verify error: {str(e)}")
+        return render_template('index.html', error='Login failed'), 500
+
+@app.route('/auth/logout', methods=['POST'])
+@login_required
+def logout():
+    """Log user out"""
+    logout_user()
+    return jsonify({'success': True}), 200
+
+# ==================== Credit & Usage API Routes ====================
+
+@app.route('/api/credits')
+@login_required
+def get_credits():
+    """Get user's credit information"""
+    try:
+        current_user.reset_daily_credits()
+        
+        available = current_user.get_available_credits()
+        total_referrals = ReferralLog.query.filter_by(
+            referrer_id=current_user.id,
+            credited=True
+        ).count()
+        
+        total_conversions = Conversion.query.filter_by(
+            user_id=current_user.id
+        ).count()
+        
+        return jsonify({
+            'available': available,
+            'total_earned': current_user.total_credits,
+            'used': current_user.used_credits,
+            'referrals_count': total_referrals,
+            'conversions_count': total_conversions,
+            'email': current_user.email,
+            'referral_code': current_user.referral_code
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Credits API error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user-status')
+def get_user_status():
+    """Get current user status (for frontend checks)"""
+    if current_user.is_authenticated:
+        current_user.reset_daily_credits()
+        return jsonify({
+            'logged_in': True,
+            'email': current_user.email,
+            'available_credits': current_user.get_available_credits(),
+            'referral_code': current_user.referral_code
+        }), 200
+    else:
+        return jsonify({'logged_in': False}), 200
+
+@app.route('/api/referral-stats')
+@login_required
+def get_referral_stats():
+    """Get detailed referral statistics"""
+    try:
+        referrals = ReferralLog.query.filter_by(referrer_id=current_user.id).all()
+        
+        referral_list = [{
+            'email': ref.referee_email,
+            'signup_date': ref.signup_date.isoformat(),
+            'credited': ref.credited
+        } for ref in referrals]
+        
+        return jsonify({
+            'total_referrals': len(referrals),
+            'referrals': referral_list,
+            'credits_earned_from_referrals': len([r for r in referrals if r.credited]) * 5
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Referral stats error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_file():
     """Handle file upload and start conversion"""
     try:
+        # Check credits first
+        current_user.reset_daily_credits()
+        available_credits = current_user.get_available_credits()
+        
+        if available_credits < 1:
+            return jsonify({
+                'error': 'out_of_credits',
+                'message': 'You have no credits left! Share your referral link to earn more.',
+                'referral_code': current_user.referral_code
+            }), 403
+        
         if 'pdf_file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
         
@@ -276,6 +622,11 @@ def upload_file():
         # Validate MIME type
         if file.content_type and file.content_type not in ['application/pdf', 'application/x-pdf']:
             return jsonify({'error': 'Invalid file type. Please upload a PDF file'}), 400
+        
+        # Deduct credit before processing
+        current_user.used_credits += 1
+        db.session.commit()
+        logger.info(f"Credit deducted for {current_user.email}. Remaining: {current_user.get_available_credits()}")
         
         # Save uploaded file
         filename = secure_filename(file.filename)
@@ -299,6 +650,15 @@ def upload_file():
         with conversion_progress_lock:
             conversion_progress[task_id] = {'status': 'started', 'progress': 0}
             task_timestamps[task_id] = datetime.now()
+        
+        # Log conversion
+        conversion = Conversion(
+            user_id=current_user.id,
+            filename=filename,
+            task_id=task_id
+        )
+        db.session.add(conversion)
+        db.session.commit()
         
         # Store in session history
         if 'user_id' not in session:
@@ -337,10 +697,20 @@ def upload_file():
         cleanup_thread = threading.Thread(target=cleanup)
         cleanup_thread.start()
         
-        return jsonify({'task_id': task_id}), 200
+        return jsonify({
+            'task_id': task_id,
+            'credits_remaining': current_user.get_available_credits()
+        }), 200
         
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
+        # Refund credit on error
+        try:
+            if current_user.is_authenticated:
+                current_user.used_credits = max(0, current_user.used_credits - 1)
+                db.session.commit()
+        except:
+            pass
         return jsonify({'error': str(e)}), 500
 
 @app.route('/progress/<task_id>')
@@ -559,6 +929,11 @@ def automatic_cleanup():
             logger.error(f"Automatic cleanup error: {e}")
 
 if __name__ == '__main__':
+    # Initialize database
+    with app.app_context():
+        db.create_all()
+        logger.info("Database initialized")
+    
     # Start automatic cleanup thread
     cleanup_thread = threading.Thread(target=automatic_cleanup, daemon=True)
     cleanup_thread.start()

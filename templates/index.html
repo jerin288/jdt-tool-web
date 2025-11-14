@@ -14,6 +14,37 @@
             <h1><i class="fas fa-file-pdf"></i> JDT PDF to Excel Converter</h1>
             <p class="subtitle">Advanced PDF Extraction Tool - Web Edition</p>
             <div class="header-controls">
+                <!-- Credits Badge -->
+                <div id="creditsBadge" class="credits-badge" style="display: none;">
+                    <i class="fas fa-gem"></i>
+                    <span id="creditsCount">0</span>
+                    <span class="credits-text">credits</span>
+                </div>
+                
+                <!-- User Menu -->
+                <div id="userMenu" class="user-menu" style="display: none;">
+                    <button id="userMenuBtn" class="icon-btn" title="Account">
+                        <i class="fas fa-user-circle"></i>
+                    </button>
+                    <div id="userDropdown" class="user-dropdown">
+                        <div class="user-email" id="userEmail"></div>
+                        <button id="dashboardBtn" class="dropdown-item">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </button>
+                        <button id="referralBtn" class="dropdown-item">
+                            <i class="fas fa-share-alt"></i> Get More Credits
+                        </button>
+                        <button id="logoutBtn" class="dropdown-item">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Login Button -->
+                <button id="loginBtn" class="icon-btn" title="Login" style="display: none;">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
+                
                 <button id="darkModeToggle" class="icon-btn" title="Toggle Dark Mode">
                     <i class="fas fa-moon"></i>
                 </button>
@@ -240,6 +271,144 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal" style="display: none;">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2><i class="fas fa-sign-in-alt"></i> Login to Continue</h2>
+                <button class="modal-close" id="closeLoginModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-description">Enter your email to receive a magic login link</p>
+                <form id="loginForm">
+                    <label for="loginEmail">Email Address:</label>
+                    <input type="email" id="loginEmail" placeholder="your@email.com" class="template-input" required>
+                    
+                    <label for="referralCodeInput">Referral Code (Optional):</label>
+                    <input type="text" id="referralCodeInput" placeholder="Enter friend's code" class="template-input" maxlength="8">
+                    
+                    <div id="loginMessage" class="login-message" style="display: none;"></div>
+                    
+                    <div class="modal-actions">
+                        <button type="submit" id="sendMagicLinkBtn" class="modal-btn primary">
+                            <i class="fas fa-paper-plane"></i> Send Login Link
+                        </button>
+                    </div>
+                </form>
+                <p class="modal-note">
+                    <i class="fas fa-info-circle"></i> New users get 3 free conversions!
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Out of Credits Modal -->
+    <div id="outOfCreditsModal" class="modal" style="display: none;">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2><i class="fas fa-gem"></i> Out of Credits!</h2>
+                <button class="modal-close" id="closeCreditsModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-description">You've used all your daily credits. Get more by sharing!</p>
+                
+                <div class="credits-info">
+                    <div class="credit-offer">
+                        <i class="fas fa-gift"></i>
+                        <strong>Earn +5 Credits</strong>
+                        <p>For each friend who signs up with your link</p>
+                    </div>
+                </div>
+                
+                <div class="referral-box">
+                    <label>Your Referral Link:</label>
+                    <div class="referral-link-container">
+                        <input type="text" id="referralLinkInput" readonly class="referral-link-input">
+                        <button id="copyReferralLink" class="modal-btn secondary">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="share-buttons">
+                    <button id="shareTwitter" class="share-btn twitter">
+                        <i class="fab fa-twitter"></i> Share on Twitter
+                    </button>
+                    <button id="shareWhatsApp" class="share-btn whatsapp">
+                        <i class="fab fa-whatsapp"></i> Share on WhatsApp
+                    </button>
+                </div>
+                
+                <p class="modal-note">
+                    <i class="fas fa-clock"></i> Daily credits reset at midnight
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Referral Dashboard Modal -->
+    <div id="referralModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-share-alt"></i> Get More Credits</h2>
+                <button class="modal-close" id="closeReferralModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="referral-stats">
+                    <div class="stat-card">
+                        <i class="fas fa-gem"></i>
+                        <div class="stat-value" id="availableCredits">0</div>
+                        <div class="stat-label">Available Credits</div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-users"></i>
+                        <div class="stat-value" id="totalReferrals">0</div>
+                        <div class="stat-label">Successful Referrals</div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-trophy"></i>
+                        <div class="stat-value" id="creditsEarned">0</div>
+                        <div class="stat-label">Credits Earned</div>
+                    </div>
+                </div>
+                
+                <div class="referral-box">
+                    <h3>Share Your Referral Link</h3>
+                    <p>Each friend who signs up gives you +5 credits!</p>
+                    <div class="referral-link-container">
+                        <input type="text" id="dashboardReferralLink" readonly class="referral-link-input">
+                        <button id="copyDashboardLink" class="modal-btn secondary">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="share-buttons">
+                    <button id="dashboardShareTwitter" class="share-btn twitter">
+                        <i class="fab fa-twitter"></i> Share on Twitter
+                    </button>
+                    <button id="dashboardShareWhatsApp" class="share-btn whatsapp">
+                        <i class="fab fa-whatsapp"></i> Share on WhatsApp
+                    </button>
+                    <button id="dashboardShareLinkedIn" class="share-btn linkedin">
+                        <i class="fab fa-linkedin"></i> Share on LinkedIn
+                    </button>
+                </div>
+                
+                <div id="referralListContainer" class="referral-list">
+                    <h3>Your Referrals</h3>
+                    <div id="referralList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v={{ range(1, 999999) | random }}"></script>
 </body>
 </html>

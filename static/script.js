@@ -3,6 +3,8 @@ let currentTaskId = null;
 let progressInterval = null;
 let downloadFilename = null;
 let hasPreviewData = false;
+let currentUser = null;
+let userReferralCode = null;
 
 // Settings Templates
 const TEMPLATES_KEY = 'jdt_pdf_templates';
@@ -36,6 +38,25 @@ const saveTemplateBtn = document.getElementById('saveTemplateBtn');
 const previewModal = document.getElementById('previewModal');
 const historyModal = document.getElementById('historyModal');
 const templateModal = document.getElementById('templateModal');
+
+// Auth UI elements
+const loginBtn = document.getElementById('loginBtn');
+const loginModal = document.getElementById('loginModal');
+const closeLoginModal = document.getElementById('closeLoginModal');
+const loginForm = document.getElementById('loginForm');
+const creditsBadge = document.getElementById('creditsBadge');
+const creditsCount = document.getElementById('creditsCount');
+const userMenu = document.getElementById('userMenu');
+const userMenuBtn = document.getElementById('userMenuBtn');
+const userDropdown = document.getElementById('userDropdown');
+const userEmail = document.getElementById('userEmail');
+const logoutBtn = document.getElementById('logoutBtn');
+const referralBtn = document.getElementById('referralBtn');
+const dashboardBtn = document.getElementById('dashboardBtn');
+const outOfCreditsModal = document.getElementById('outOfCreditsModal');
+const closeCreditsModal = document.getElementById('closeCreditsModal');
+const referralModal = document.getElementById('referralModal');
+const closeReferralModal = document.getElementById('closeReferralModal');
 
 // File Upload Handling
 fileInput.addEventListener('change', function(e) {
@@ -149,11 +170,25 @@ uploadForm.addEventListener('submit', async function(e) {
         
         if (!response.ok) {
             const error = await response.json();
+            
+            // Handle out of credits error
+            if (error.error === 'out_of_credits') {
+                convertBtn.disabled = false;
+                hideAllSections();
+                showOutOfCreditsModal();
+                return;
+            }
+            
             throw new Error(error.error || 'Upload failed');
         }
         
         const result = await response.json();
         currentTaskId = result.task_id;
+        
+        // Update credits display
+        if (result.credits_remaining !== undefined) {
+            creditsCount.textContent = result.credits_remaining;
+        }
         
         // Start monitoring progress
         startProgressMonitoring();
@@ -560,7 +595,159 @@ window.addEventListener('click', function(e) {
         templateModal.style.display = 'none';
         templateModal.classList.remove('active');
     }
+    if (e.target === loginModal) {
+        loginModal.style.display = 'none';
+        loginModal.classList.remove('active');
+    }
+    if (e.target === outOfCreditsModal) {
+        outOfCreditsModal.style.display = 'none';
+        outOfCreditsModal.classList.remove('active');
+    }
+    if (e.target === referralModal) {
+        referralModal.style.display = 'none';
+        referralModal.classList.remove('active');
+    }
 });
+
+// ============================================================================
+// AUTHENTICATION & CREDITS SYSTEM
+// ============================================================================
+
+// Check user status on page load
+async function checkUserStatus() {
+    try {
+        const response = await fetch('/api/user-status');
+        const data = await response.json();
+        
+        if (data.logged_in) {
+            currentUser = data;
+            userReferralCode = data.referral_code;
+            showLoggedInState(data);
+            await updateCreditsDisplay();
+        } else {
+            showLoggedOutState();
+        }
+    } catch (error) {
+        console.error('Status check error:', error);
+        showLoggedOutState();
+    }
+}
+
+function showLoggedInState(userData) {
+    loginBtn.style.display = 'none';
+    creditsBadge.style.display = 'flex';
+    userMenu.style.display = 'block';
+    userEmail.textContent = userData.email;
+    creditsCount.textContent = userData.available_credits || 0;
+}
+
+function showLoggedOutState() {
+    loginBtn.style.display = 'inline-flex';
+    creditsBadge.style.display = 'none';
+    userMenu.style.display = 'none';
+}
+
+async function updateCreditsDisplay() {
+    try {
+        const response = await fetch('/api/credits');
+        if (response.ok) {
+            const data = await response.json();
+            creditsCount.textContent = data.available;
+            currentUser = data;
+        }
+    } catch (error) {
+        console.error('Credits update error:', error);
+    }
+}
+
+async function showReferralModal() {
+    try {
+        const response = await fetch('/api/credits');
+        const creditsData = await response.json();
+        
+        const statsResponse = await fetch('/api/referral-stats');
+        const statsData = await statsResponse.json();
+        
+        document.getElementById('availableCredits').textContent = creditsData.available;
+        document.getElementById('totalReferrals').textContent = statsData.total_referrals;
+        document.getElementById('creditsEarned').textContent = creditsData.total_earned;
+        
+        const referralLink = `${window.location.origin}/?ref=${creditsData.referral_code}`;
+        document.getElementById('dashboardReferralLink').value = referralLink;
+        
+        // Display referral list
+        const referralList = document.getElementById('referralList');
+        if (statsData.referrals && statsData.referrals.length > 0) {
+            let html = '<div class="referral-items">';
+            statsData.referrals.forEach(ref => {
+                const date = new Date(ref.signup_date).toLocaleDateString();
+                html += `
+                    <div class="referral-item">
+                        <i class="fas fa-user-check"></i>
+                        <span>${ref.email}</span>
+                        <span class="referral-date">${date}</span>
+                        ${ref.credited ? '<span class="credit-badge">+5 credits</span>' : ''}
+                    </div>
+                `;
+            });
+            html += '</div>';
+            referralList.innerHTML = html;
+        } else {
+            referralList.innerHTML = '<p class="no-referrals">No referrals yet. Start sharing!</p>';
+        }
+        
+        referralModal.style.display = 'flex';
+        referralModal.classList.add('active');
+    } catch (error) {
+        console.error('Referral modal error:', error);
+    }
+}
+
+function showOutOfCreditsModal() {
+    const referralLink = `${window.location.origin}/?ref=${userReferralCode}`;
+    document.getElementById('referralLinkInput').value = referralLink;
+    
+    outOfCreditsModal.style.display = 'flex';
+    outOfCreditsModal.classList.add('active');
+}
+
+// Copy referral link handlers
+document.getElementById('copyReferralLink').addEventListener('click', function() {
+    const input = document.getElementById('referralLinkInput');
+    input.select();
+    document.execCommand('copy');
+    showToast('Referral link copied!');
+});
+
+document.getElementById('copyDashboardLink').addEventListener('click', function() {
+    const input = document.getElementById('dashboardReferralLink');
+    input.select();
+    document.execCommand('copy');
+    showToast('Referral link copied!');
+});
+
+// Social share handlers
+function shareOnTwitter(referralCode) {
+    const text = `I'm using JDT PDF Converter - it's amazing! Get 3 free conversions with my link:`;
+    const url = `${window.location.origin}/?ref=${referralCode}`;
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+}
+
+function shareOnWhatsApp(referralCode) {
+    const text = `Check out JDT PDF Converter! Get 3 free conversions: ${window.location.origin}/?ref=${referralCode}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+function shareOnLinkedIn(referralCode) {
+    const url = `${window.location.origin}/?ref=${referralCode}`;
+    window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
+}
+
+document.getElementById('shareTwitter').addEventListener('click', () => shareOnTwitter(userReferralCode));
+document.getElementById('shareWhatsApp').addEventListener('click', () => shareOnWhatsApp(userReferralCode));
+document.getElementById('dashboardShareTwitter').addEventListener('click', () => shareOnTwitter(currentUser.referral_code));
+document.getElementById('dashboardShareWhatsApp').addEventListener('click', () => shareOnWhatsApp(currentUser.referral_code));
+document.getElementById('dashboardShareLinkedIn').addEventListener('click', () => shareOnLinkedIn(currentUser.referral_code));
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -570,4 +757,178 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    initializeDarkMode();
+    loadTemplates();
+    checkUserStatus();
+    
+    // Setup all authentication event listeners
+    setupAuthEventListeners();
+    
+    // Check for referral code in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    if (refCode && !currentUser) {
+        // Auto-show login modal with referral code prefilled
+        setTimeout(() => {
+            const referralInput = document.getElementById('referralCodeInput');
+            const modal = document.getElementById('loginModal');
+            if (referralInput && modal) {
+                referralInput.value = refCode.toUpperCase();
+                modal.style.display = 'flex';
+                modal.classList.add('active');
+            }
+        }, 1000);
+    }
+});
+
+// Setup authentication event listeners
+function setupAuthEventListeners() {
+    const loginBtn = document.getElementById('loginBtn');
+    const loginModal = document.getElementById('loginModal');
+    const closeLoginModal = document.getElementById('closeLoginModal');
+    const loginForm = document.getElementById('loginForm');
+    const userMenuBtn = document.getElementById('userMenuBtn');
+    const userDropdown = document.getElementById('userDropdown');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const referralBtn = document.getElementById('referralBtn');
+    const dashboardBtn = document.getElementById('dashboardBtn');
+    const closeCreditsModal = document.getElementById('closeCreditsModal');
+    const closeReferralModal = document.getElementById('closeReferralModal');
+    const outOfCreditsModal = document.getElementById('outOfCreditsModal');
+    const referralModal = document.getElementById('referralModal');
+    
+    // Login button handler
+    if (loginBtn) {
+        loginBtn.addEventListener('click', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const refCode = urlParams.get('ref');
+            if (refCode) {
+                document.getElementById('referralCodeInput').value = refCode.toUpperCase();
+            }
+            loginModal.style.display = 'flex';
+            loginModal.classList.add('active');
+        });
+    }
+    
+    // Close login modal
+    if (closeLoginModal) {
+        closeLoginModal.addEventListener('click', function() {
+            loginModal.style.display = 'none';
+            loginModal.classList.remove('active');
+        });
+    }
+    
+    // Login form submission
+    if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const email = document.getElementById('loginEmail').value.trim();
+            const referralCode = document.getElementById('referralCodeInput').value.trim();
+            const sendBtn = document.getElementById('sendMagicLinkBtn');
+            const messageDiv = document.getElementById('loginMessage');
+            
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+            
+            try {
+                const response = await fetch('/auth/send-magic-link', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, referral_code: referralCode})
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    messageDiv.style.display = 'block';
+                    messageDiv.className = 'login-message success';
+                    messageDiv.innerHTML = `
+                        <i class="fas fa-check-circle"></i>
+                        <strong>Check your email!</strong><br>
+                        We've sent you a login link. Click it to access your account.
+                    `;
+                    loginForm.reset();
+                } else {
+                    messageDiv.style.display = 'block';
+                    messageDiv.className = 'login-message error';
+                    messageDiv.innerHTML = `
+                        <i class="fas fa-exclamation-circle"></i>
+                        ${data.error || 'Failed to send login link'}
+                    `;
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                messageDiv.style.display = 'block';
+                messageDiv.className = 'login-message error';
+                messageDiv.innerHTML = `
+                    <i class="fas fa-exclamation-circle"></i>
+                    Network error. Please try again.<br>
+                    <small>${error.message}</small>
+                `;
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Login Link';
+            }
+        });
+    }
+    
+    // User menu dropdown toggle
+    if (userMenuBtn && userDropdown) {
+        userMenuBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            userDropdown.classList.toggle('active');
+        });
+        
+        document.addEventListener('click', function() {
+            userDropdown.classList.remove('active');
+        });
+    }
+    
+    // Logout button
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async function() {
+            try {
+                await fetch('/auth/logout', {method: 'POST'});
+                window.location.reload();
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        });
+    }
+    
+    // Referral button
+    if (referralBtn) {
+        referralBtn.addEventListener('click', function() {
+            showReferralDashboard();
+        });
+    }
+    
+    // Dashboard button
+    if (dashboardBtn) {
+        dashboardBtn.addEventListener('click', function() {
+            showReferralDashboard();
+        });
+    }
+    
+    // Close modals
+    if (closeCreditsModal && outOfCreditsModal) {
+        closeCreditsModal.addEventListener('click', function() {
+            outOfCreditsModal.style.display = 'none';
+        });
+    }
+    
+    if (closeReferralModal && referralModal) {
+        closeReferralModal.addEventListener('click', function() {
+            referralModal.style.display = 'none';
+        });
+    }
 }
