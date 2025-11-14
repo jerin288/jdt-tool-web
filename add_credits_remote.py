@@ -3,8 +3,8 @@ import requests
 import sys
 
 # Configuration
-RENDER_URL = "https://jdt-tool-web.onrender.com"  # Replace with your Render URL
-ADMIN_KEY = "f693e73a5660365ad212b9a7f4c867ec"  # Replace with your admin key
+RENDER_URL = "https://jdpdftoexcel.online/"  # Replace with your Render URL
+ADMIN_KEY = "ZpWm8My21q7vJbNs8yT4NSCaifigunTJyGUNOuflch0"  # Replace with your admin key
 
 def add_credits_to_user(email, credits):
     """Add credits to a specific user"""
