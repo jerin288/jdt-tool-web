@@ -28,12 +28,17 @@ fileInput.addEventListener('change', function(e) {
 
 function handleFileSelect(file) {
     if (file && file.type === 'application/pdf') {
-        fileName.textContent = file.name;
+        // Sanitize filename for display
+        const sanitizedName = file.name.replace(/[<>"']/g, '');
+        fileName.textContent = sanitizedName;
         fileInfo.textContent = `Size: ${formatFileSize(file.size)}`;
         document.querySelector('.file-upload-label').classList.add('has-file');
     } else if (file) {
         alert('Please select a valid PDF file');
         fileInput.value = '';
+        fileName.textContent = 'Choose PDF file or drag & drop here';
+        fileInfo.textContent = '';
+        document.querySelector('.file-upload-label').classList.remove('has-file');
     }
 }
 
@@ -79,6 +84,22 @@ uploadForm.addEventListener('submit', async function(e) {
         return;
     }
     
+    // Validate file size (50MB limit)
+    if (fileInput.files[0].size > 50 * 1024 * 1024) {
+        alert('File size exceeds 50MB limit');
+        return;
+    }
+    
+    // Validate page range format
+    const pageRange = document.getElementById('pageRange').value.trim();
+    if (pageRange && pageRange.toLowerCase() !== 'all') {
+        const pageRangeRegex = /^\d+(-\d+)?(,\s*\d+(-\d+)?)*$/;
+        if (!pageRangeRegex.test(pageRange)) {
+            alert('Invalid page range format. Use "all", "1-3", or "1,3,5"');
+            return;
+        }
+    }
+    
     // Prepare form data
     const formData = new FormData();
     formData.append('pdf_file', fileInput.files[0]);
@@ -99,10 +120,16 @@ uploadForm.addEventListener('submit', async function(e) {
     
     try {
         // Upload file and start conversion
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+        
         const response = await fetch('/upload', {
             method: 'POST',
-            body: formData
+            body: formData,
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
             const error = await response.json();
@@ -116,18 +143,35 @@ uploadForm.addEventListener('submit', async function(e) {
         startProgressMonitoring();
         
     } catch (error) {
-        showError(error.message);
+        if (error.name === 'AbortError') {
+            showError('Upload timed out. Please try again with a smaller file.');
+        } else {
+            showError(error.message);
+        }
+        convertBtn.disabled = false;
     }
 });
 
 // Progress Monitoring
+let progressTimeout = 0;
+const MAX_PROGRESS_TIME = 600000; // 10 minutes max
+
 function startProgressMonitoring() {
     if (progressInterval) {
         clearInterval(progressInterval);
     }
     
+    const startTime = Date.now();
+    
     progressInterval = setInterval(async () => {
         try {
+            // Check for timeout
+            if (Date.now() - startTime > MAX_PROGRESS_TIME) {
+                clearInterval(progressInterval);
+                showError('Conversion timed out. Please try again with a smaller file or fewer pages.');
+                return;
+            }
+            
             const response = await fetch(`/progress/${currentTaskId}`);
             if (!response.ok) {
                 throw new Error('Failed to get progress');
@@ -146,7 +190,8 @@ function startProgressMonitoring() {
             
         } catch (error) {
             clearInterval(progressInterval);
-            showError('Failed to monitor progress');
+            showError('Failed to monitor progress. The conversion may still be running.');
+            convertBtn.disabled = false;
         }
     }, 500);
 }

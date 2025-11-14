@@ -13,16 +13,23 @@ import uuid
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Store conversion progress
+# Store conversion progress with thread safety
 conversion_progress = {}
+conversion_progress_lock = threading.Lock()
+
+# Maximum age for tasks in memory (1 hour)
+MAX_TASK_AGE = timedelta(hours=1)
+task_timestamps = {}
+task_timestamps = {}
 
 class PDFConverter:
     @staticmethod
@@ -72,7 +79,7 @@ class PDFConverter:
         try:
             conversion_progress[task_id] = {'status': 'processing', 'progress': 10}
             
-            password = options.get('password') if options.get('password') else None
+            password = options.get('password', '').strip() or None
             
             # Open PDF with optional password
             conversion_progress[task_id] = {'status': 'processing', 'progress': 20, 'message': 'Opening PDF...'}
@@ -88,11 +95,12 @@ class PDFConverter:
                 extract_mode = options.get('extract_mode', 'tables')
                 
                 # Extract data based on mode
-                conversion_progress[task_id] = {
-                    'status': 'processing', 
-                    'progress': 30, 
-                    'message': f'Extracting data from {len(pages_to_extract)} pages...'
-                }
+                with conversion_progress_lock:
+                    conversion_progress[task_id] = {
+                        'status': 'processing', 
+                        'progress': 30, 
+                        'message': f'Extracting data from {len(pages_to_extract)} pages...'
+                    }
                 
                 progress_increment = 50 / len(pages_to_extract) if pages_to_extract else 50
                 current_progress = 30
@@ -129,35 +137,39 @@ class PDFConverter:
                             })
                     
                     current_progress += progress_increment
-                    conversion_progress[task_id] = {
-                        'status': 'processing',
-                        'progress': min(80, current_progress),
-                        'message': f'Processing page {page_idx + 1} of {total_pages}...'
-                    }
+                    with conversion_progress_lock:
+                        conversion_progress[task_id] = {
+                            'status': 'processing',
+                            'progress': min(80, int(current_progress)),
+                            'message': f'Processing page {page_idx + 1} of {total_pages}...'
+                        }
                 
                 # Check if any data was extracted
                 if not all_tables and not all_text:
-                    conversion_progress[task_id] = {
-                        'status': 'error',
-                        'message': 'No data found in the PDF!'
-                    }
+                    with conversion_progress_lock:
+                        conversion_progress[task_id] = {
+                            'status': 'error',
+                            'message': 'No data found in the PDF!'
+                        }
                     return None
                 
                 # Merge tables if option is enabled
                 if options.get('merge_tables', False) and all_tables:
-                    conversion_progress[task_id] = {
-                        'status': 'processing',
-                        'progress': 85,
-                        'message': 'Merging tables...'
-                    }
+                    with conversion_progress_lock:
+                        conversion_progress[task_id] = {
+                            'status': 'processing',
+                            'progress': 85,
+                            'message': 'Merging tables...'
+                        }
                     all_tables = [pd.concat(all_tables, ignore_index=True)]
                 
                 # Save based on format
-                conversion_progress[task_id] = {
-                    'status': 'processing',
-                    'progress': 90,
-                    'message': 'Saving file...'
-                }
+                with conversion_progress_lock:
+                    conversion_progress[task_id] = {
+                        'status': 'processing',
+                        'progress': 90,
+                        'message': 'Saving file...'
+                    }
                 
                 output_format = options.get('output_format', 'xlsx')
                 output_filename = f"converted_{uuid.uuid4().hex[:8]}.{output_format}"
@@ -183,23 +195,31 @@ class PDFConverter:
                         text_df.to_csv(output_path, index=False)
                 
                 # Success
-                conversion_progress[task_id] = {
-                    'status': 'completed',
-                    'progress': 100,
-                    'message': 'Conversion completed successfully!',
-                    'output_file': output_filename,
-                    'table_count': len(all_tables),
-                    'text_count': len(all_text)
-                }
+                with conversion_progress_lock:
+                    conversion_progress[task_id] = {
+                        'status': 'completed',
+                        'progress': 100,
+                        'message': 'Conversion completed successfully!',
+                        'output_file': output_filename,
+                        'table_count': len(all_tables),
+                        'text_count': len(all_text)
+                    }
                 
                 return output_path
                 
         except Exception as e:
-            logger.error(f"Conversion error: {str(e)}")
-            conversion_progress[task_id] = {
-                'status': 'error',
-                'message': f'An error occurred during conversion: {str(e)}'
-            }
+            logger.error(f"Conversion error: {str(e)}", exc_info=True)
+            with conversion_progress_lock:
+                conversion_progress[task_id] = {
+                    'status': 'error',
+                    'message': f'An error occurred during conversion: {str(e)}'
+                }
+            # Clean up the PDF file on error
+            try:
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
+            except Exception as cleanup_error:
+                logger.error(f"Cleanup error: {cleanup_error}")
             return None
 
 @app.route('/')
@@ -221,6 +241,10 @@ def upload_file():
         if not file.filename.lower().endswith('.pdf'):
             return jsonify({'error': 'Please upload a PDF file'}), 400
         
+        # Validate MIME type
+        if file.content_type and file.content_type not in ['application/pdf', 'application/x-pdf']:
+            return jsonify({'error': 'Invalid file type. Please upload a PDF file'}), 400
+        
         # Save uploaded file
         filename = secure_filename(file.filename)
         temp_filename = f"{uuid.uuid4().hex}_{filename}"
@@ -240,7 +264,9 @@ def upload_file():
         
         # Generate task ID
         task_id = str(uuid.uuid4())
-        conversion_progress[task_id] = {'status': 'started', 'progress': 0}
+        with conversion_progress_lock:
+            conversion_progress[task_id] = {'status': 'started', 'progress': 0}
+            task_timestamps[task_id] = datetime.now()
         
         # Start conversion in background thread
         thread = threading.Thread(
@@ -256,8 +282,8 @@ def upload_file():
             try:
                 if os.path.exists(filepath):
                     os.remove(filepath)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to clean up uploaded file {filepath}: {e}")
         
         cleanup_thread = threading.Thread(target=cleanup)
         cleanup_thread.start()
@@ -271,8 +297,12 @@ def upload_file():
 @app.route('/progress/<task_id>')
 def get_progress(task_id):
     """Get conversion progress"""
+    with conversion_progress_lock:
+        if task_id in conversion_progress:
+            progress_data = conversion_progress[task_id].copy()
+    
     if task_id in conversion_progress:
-        return jsonify(conversion_progress[task_id])
+        return jsonify(progress_data)
     else:
         return jsonify({'status': 'not_found', 'message': 'Task not found'}), 404
 
@@ -292,12 +322,13 @@ def download_file(filename):
             
             # Send file and schedule deletion
             def remove_file(path):
-                time.sleep(10)  # Wait 10 seconds after download
+                time.sleep(30)  # Wait 30 seconds after download to ensure completion
                 try:
                     if os.path.exists(path):
                         os.remove(path)
-                except:
-                    pass
+                        logger.info(f"Successfully deleted temporary file: {path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {path}: {e}")
             
             threading.Thread(target=remove_file, args=(filepath,)).start()
             
@@ -315,12 +346,14 @@ def download_file(filename):
 
 @app.route('/cleanup')
 def cleanup_old_files():
-    """Clean up old temporary files (can be called periodically)"""
+    """Clean up old temporary files and task data (can be called periodically)"""
     try:
         temp_dir = app.config['UPLOAD_FOLDER']
         now = datetime.now()
-        deleted_count = 0
+        deleted_files = 0
+        deleted_tasks = 0
         
+        # Clean up old files
         for filename in os.listdir(temp_dir):
             filepath = os.path.join(temp_dir, filename)
             # Delete files older than 1 hour
@@ -329,12 +362,27 @@ def cleanup_old_files():
                 if now - file_modified > timedelta(hours=1):
                     try:
                         os.remove(filepath)
-                        deleted_count += 1
-                    except:
-                        pass
+                        deleted_files += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to delete old file {filepath}: {e}")
         
-        return jsonify({'deleted': deleted_count}), 200
+        # Clean up old task data to prevent memory leaks
+        with conversion_progress_lock:
+            tasks_to_remove = []
+            for task_id, timestamp in task_timestamps.items():
+                if now - timestamp > MAX_TASK_AGE:
+                    tasks_to_remove.append(task_id)
+            
+            for task_id in tasks_to_remove:
+                if task_id in conversion_progress:
+                    del conversion_progress[task_id]
+                if task_id in task_timestamps:
+                    del task_timestamps[task_id]
+                deleted_tasks += 1
+        
+        return jsonify({'deleted_files': deleted_files, 'deleted_tasks': deleted_tasks}), 200
     except Exception as e:
+        logger.error(f"Cleanup error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

@@ -23,7 +23,7 @@
                     <i class="fas fa-folder-open"></i> Select PDF File
                 </div>
                 <div class="file-upload-wrapper">
-                    <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" required>
+                    <input type="file" id="pdfFile" name="pdf_file" accept=".pdf,application/pdf" required aria-label="PDF file input">
                     <label for="pdfFile" class="file-upload-label">
                         <i class="fas fa-cloud-upload-alt"></i>
                         <span id="fileName">Choose PDF file or drag & drop here</span>
@@ -42,14 +42,17 @@
                     <!-- Page Range -->
                     <div class="option-group">
                         <label for="pageRange">Page Range:</label>
-                        <input type="text" id="pageRange" name="page_range" value="all" placeholder="e.g., all, 1-3, 1,3,5">
+                        <input type="text" id="pageRange" name="page_range" value="all" 
+                               placeholder="e.g., all, 1-3, 1,3,5" 
+                               maxlength="100"
+                               aria-label="Page range selection">
                         <small class="help-text">Specify pages to extract</small>
                     </div>
 
                     <!-- Extract Mode -->
                     <div class="option-group">
                         <label for="extractMode">Extract Mode:</label>
-                        <select id="extractMode" name="extract_mode">
+                        <select id="extractMode" name="extract_mode" aria-label="Data extraction mode">
                             <option value="tables">Tables Only</option>
                             <option value="text">Text Only</option>
                             <option value="both">Both Tables & Text</option>
@@ -59,7 +62,7 @@
                     <!-- Output Format -->
                     <div class="option-group">
                         <label for="outputFormat">Output Format:</label>
-                        <select id="outputFormat" name="output_format">
+                        <select id="outputFormat" name="output_format" aria-label="Output file format">
                             <option value="xlsx">Excel (.xlsx)</option>
                             <option value="csv">CSV (.csv)</option>
                         </select>
@@ -70,7 +73,10 @@
                         <label for="password">
                             <i class="fas fa-lock"></i> PDF Password:
                         </label>
-                        <input type="password" id="password" name="password" placeholder="If encrypted">
+                        <input type="password" id="password" name="password" 
+                               placeholder="If encrypted" 
+                               maxlength="100"
+                               aria-label="PDF password if file is encrypted">
                     </div>
                 </div>
 
