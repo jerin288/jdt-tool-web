@@ -45,7 +45,7 @@ class User(UserMixin, db.Model):
     password = db.Column(db.String(255), nullable=False)  # Store password hash
     referral_code = db.Column(db.String(10), unique=True, nullable=False, index=True)
     referred_by_code = db.Column(db.String(10), nullable=True)
-    total_credits = db.Column(db.Integer, default=3)  # Starting credits
+    total_credits = db.Column(db.Integer, default=20)  # Starting credits
     used_credits = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_reset_date = db.Column(db.Date, default=datetime.utcnow().date)
@@ -385,7 +385,7 @@ def signup():
             email=email,
             referral_code=User.generate_referral_code(),
             referred_by_code=referral_code if referral_code else None,
-            total_credits=3,
+            total_credits=20,
             used_credits=0
         )
         user.set_password(password)
@@ -403,8 +403,8 @@ def signup():
                 ).first()
                 
                 if not existing_log:
-                    # Award 5 credits to referrer
-                    referrer.total_credits += 5
+                    # Award 10 credits to referrer
+                    referrer.total_credits += 10
                     
                     # Log the referral
                     ref_log = ReferralLog(
@@ -541,11 +541,48 @@ def get_referral_stats():
         return jsonify({
             'total_referrals': len(referrals),
             'referrals': referral_list,
-            'credits_earned_from_referrals': len([r for r in referrals if r.credited]) * 5
+            'credits_earned_from_referrals': len([r for r in referrals if r.credited]) * 10
         }), 200
         
     except Exception as e:
         logger.error(f"Referral stats error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/profile')
+@login_required
+def get_profile():
+    """Get user profile information"""
+    try:
+        # Get referral stats
+        referrals = ReferralLog.query.filter_by(referrer_id=current_user.id).all()
+        total_referrals = len(referrals)
+        referral_credits = len([r for r in referrals if r.credited]) * 10
+        
+        # Get conversions count
+        total_conversions = Conversion.query.filter_by(user_id=current_user.id).count()
+        
+        # Get who referred this user
+        referred_by = None
+        if current_user.referred_by_code:
+            referrer = User.query.filter_by(referral_code=current_user.referred_by_code).first()
+            if referrer:
+                referred_by = referrer.email
+        
+        return jsonify({
+            'email': current_user.email,
+            'referral_code': current_user.referral_code,
+            'created_at': current_user.created_at.isoformat(),
+            'total_credits': current_user.total_credits,
+            'used_credits': current_user.used_credits,
+            'available_credits': current_user.get_available_credits(),
+            'total_conversions': total_conversions,
+            'total_referrals': total_referrals,
+            'referral_credits': referral_credits,
+            'referred_by': referred_by
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Profile error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/upload', methods=['POST'])

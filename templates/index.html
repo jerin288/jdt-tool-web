@@ -28,6 +28,9 @@
                     </button>
                     <div id="userDropdown" class="user-dropdown">
                         <div class="user-email" id="userEmail"></div>
+                        <button id="profileBtn" class="dropdown-item">
+                            <i class="fas fa-user"></i> My Profile
+                        </button>
                         <button id="dashboardBtn" class="dropdown-item">
                             <i class="fas fa-tachometer-alt"></i> Dashboard
                         </button>
@@ -311,7 +314,7 @@
                 </div>
                 
                 <p class="modal-note">
-                    <i class="fas fa-info-circle"></i> New users get 3 free conversions daily!
+                    <i class="fas fa-info-circle"></i> New users get 20 free credits to start!
                 </p>
             </div>
         </div>
@@ -363,6 +366,92 @@
         </div>
     </div>
 
+    <!-- Profile Modal -->
+    <div id="profileModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-user-circle"></i> My Profile</h2>
+                <button class="modal-close" id="closeProfileModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="profile-section">
+                    <h3><i class="fas fa-info-circle"></i> Account Information</h3>
+                    <div class="profile-info">
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-envelope"></i> Email:</span>
+                            <span class="info-value" id="profileEmail">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-calendar-alt"></i> Member Since:</span>
+                            <span class="info-value" id="profileJoinDate">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-tag"></i> Referral Code:</span>
+                            <span class="info-value">
+                                <code id="profileReferralCode">-</code>
+                                <button id="copyProfileReferralCode" class="copy-btn-small" title="Copy code">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-section">
+                    <h3><i class="fas fa-chart-bar"></i> Usage Statistics</h3>
+                    <div class="profile-stats">
+                        <div class="stat-card-small">
+                            <i class="fas fa-gem"></i>
+                            <div class="stat-value" id="profileTotalCredits">0</div>
+                            <div class="stat-label">Total Credits</div>
+                        </div>
+                        <div class="stat-card-small">
+                            <i class="fas fa-check-circle"></i>
+                            <div class="stat-value" id="profileUsedCredits">0</div>
+                            <div class="stat-label">Used Credits</div>
+                        </div>
+                        <div class="stat-card-small">
+                            <i class="fas fa-trophy"></i>
+                            <div class="stat-value" id="profileAvailableCredits">0</div>
+                            <div class="stat-label">Available</div>
+                        </div>
+                        <div class="stat-card-small">
+                            <i class="fas fa-file-pdf"></i>
+                            <div class="stat-value" id="profileTotalConversions">0</div>
+                            <div class="stat-label">Conversions</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-section">
+                    <h3><i class="fas fa-users"></i> Referral Performance</h3>
+                    <div class="profile-info">
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-user-plus"></i> Total Referrals:</span>
+                            <span class="info-value" id="profileTotalReferrals">0</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-gift"></i> Credits from Referrals:</span>
+                            <span class="info-value" id="profileReferralCredits">0</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-user-tag"></i> Referred By:</span>
+                            <span class="info-value" id="profileReferredBy">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-actions">
+                    <button id="viewReferralsBtn" class="modal-btn primary">
+                        <i class="fas fa-share-alt"></i> View Referral Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Referral Dashboard Modal -->
     <div id="referralModal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -393,7 +482,7 @@
                 
                 <div class="referral-box">
                     <h3>Share Your Referral Link</h3>
-                    <p>Each friend who signs up gives you +5 credits!</p>
+                    <p>Each friend who signs up gives you +10 credits!</p>
                     <div class="referral-link-container">
                         <input type="text" id="dashboardReferralLink" readonly class="referral-link-input">
                         <button id="copyDashboardLink" class="modal-btn secondary">

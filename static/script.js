@@ -686,7 +686,7 @@ async function showReferralModal() {
                         <i class="fas fa-user-check"></i>
                         <span>${ref.email}</span>
                         <span class="referral-date">${date}</span>
-                        ${ref.credited ? '<span class="credit-badge">+5 credits</span>' : ''}
+                        ${ref.credited ? '<span class="credit-badge">+10 credits</span>' : ''}
                     </div>
                 `;
             });
@@ -702,6 +702,54 @@ async function showReferralModal() {
         console.error('Referral modal error:', error);
     }
 }
+
+// Alias for backward compatibility
+const showReferralDashboard = showReferralModal;
+
+async function showProfileModal() {
+    console.log('showProfileModal called');
+    try {
+        console.log('Fetching profile data...');
+        const response = await fetch('/api/profile');
+        console.log('Profile response:', response.status);
+        const data = await response.json();
+        console.log('Profile data:', data);
+        
+        // Account information
+        document.getElementById('profileEmail').textContent = data.email;
+        document.getElementById('profileReferralCode').textContent = data.referral_code;
+        
+        // Format join date
+        const joinDate = new Date(data.created_at);
+        document.getElementById('profileJoinDate').textContent = joinDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        
+        // Usage statistics
+        document.getElementById('profileTotalCredits').textContent = data.total_credits;
+        document.getElementById('profileUsedCredits').textContent = data.used_credits;
+        document.getElementById('profileAvailableCredits').textContent = data.available_credits;
+        document.getElementById('profileTotalConversions').textContent = data.total_conversions;
+        
+        // Referral performance
+        document.getElementById('profileTotalReferrals').textContent = data.total_referrals;
+        document.getElementById('profileReferralCredits').textContent = data.referral_credits;
+        document.getElementById('profileReferredBy').textContent = data.referred_by || 'None';
+        
+        // Show modal
+        const profileModal = document.getElementById('profileModal');
+        console.log('Profile modal element:', profileModal);
+        profileModal.style.display = 'flex';
+        profileModal.classList.add('active');
+        console.log('Profile modal should be visible now');
+    } catch (error) {
+        console.error('Profile modal error:', error);
+        showToast('Failed to load profile');
+    }
+}
+
 
 function showOutOfCreditsModal() {
     const referralLink = `${window.location.origin}/?ref=${userReferralCode}`;
@@ -947,11 +995,11 @@ function setupAuthEventListeners() {
     if (userMenuBtn && userDropdown) {
         userMenuBtn.addEventListener('click', function(e) {
             e.stopPropagation();
-            userDropdown.classList.toggle('active');
+            userDropdown.classList.toggle('show');
         });
         
         document.addEventListener('click', function() {
-            userDropdown.classList.remove('active');
+            userDropdown.classList.remove('show');
         });
     }
     
@@ -974,9 +1022,24 @@ function setupAuthEventListeners() {
         });
     }
     
+    // Profile button
+    const profileBtn = document.getElementById('profileBtn');
+    if (profileBtn) {
+        profileBtn.addEventListener('click', function() {
+            console.log('Profile button clicked');
+            const userDropdown = document.getElementById('userDropdown');
+            if (userDropdown) userDropdown.classList.remove('show');
+            showProfileModal();
+        });
+    } else {
+        console.log('Profile button not found');
+    }
+    
     // Dashboard button
     if (dashboardBtn) {
         dashboardBtn.addEventListener('click', function() {
+            const userDropdown = document.getElementById('userDropdown');
+            if (userDropdown) userDropdown.classList.remove('show');
             showReferralDashboard();
         });
     }
@@ -985,12 +1048,64 @@ function setupAuthEventListeners() {
     if (closeCreditsModal && outOfCreditsModal) {
         closeCreditsModal.addEventListener('click', function() {
             outOfCreditsModal.style.display = 'none';
+            outOfCreditsModal.classList.remove('active');
         });
     }
     
     if (closeReferralModal && referralModal) {
         closeReferralModal.addEventListener('click', function() {
             referralModal.style.display = 'none';
+            referralModal.classList.remove('active');
+        });
+    }
+    
+    const closeProfileModal = document.getElementById('closeProfileModal');
+    const profileModal = document.getElementById('profileModal');
+    if (closeProfileModal && profileModal) {
+        closeProfileModal.addEventListener('click', function() {
+            profileModal.style.display = 'none';
+            profileModal.classList.remove('active');
+        });
+    }
+    
+    // Click outside modal to close
+    window.addEventListener('click', function(e) {
+        if (e.target === referralModal) {
+            referralModal.style.display = 'none';
+            referralModal.classList.remove('active');
+        }
+        if (e.target === profileModal) {
+            profileModal.style.display = 'none';
+            profileModal.classList.remove('active');
+        }
+        if (e.target === outOfCreditsModal) {
+            outOfCreditsModal.style.display = 'none';
+            outOfCreditsModal.classList.remove('active');
+        }
+    });
+    
+    // View referrals from profile
+    const viewReferralsBtn = document.getElementById('viewReferralsBtn');
+    if (viewReferralsBtn) {
+        viewReferralsBtn.addEventListener('click', function() {
+            profileModal.style.display = 'none';
+            showReferralDashboard();
+        });
+    }
+    
+    // Copy profile referral code
+    const copyProfileReferralCode = document.getElementById('copyProfileReferralCode');
+    if (copyProfileReferralCode) {
+        copyProfileReferralCode.addEventListener('click', function() {
+            const codeElement = document.getElementById('profileReferralCode');
+            if (codeElement) {
+                navigator.clipboard.writeText(codeElement.textContent).then(() => {
+                    copyProfileReferralCode.innerHTML = '<i class="fas fa-check"></i>';
+                    setTimeout(() => {
+                        copyProfileReferralCode.innerHTML = '<i class="fas fa-copy"></i>';
+                    }, 2000);
+                });
+            }
         });
     }
 }
