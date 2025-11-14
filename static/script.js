@@ -1136,12 +1136,12 @@ async function loadCreditHistory() {
         const historyList = document.getElementById('creditHistoryList');
         
         if (data.history.length === 0) {
-            historyList.innerHTML = 
-                <div class=\""no-history\"">
-                    <i class=\""fas fa-inbox\""></i>
+            historyList.innerHTML = `
+                <div class="no-history">
+                    <i class="fas fa-inbox"></i>
                     <p>No credit history yet</p>
                 </div>
-            ;
+            `;
             return;
         }
         
