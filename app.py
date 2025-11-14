@@ -652,19 +652,26 @@ def upload_file():
         if file.content_type and file.content_type not in ['application/pdf', 'application/x-pdf']:
             return jsonify({'error': 'Invalid file type. Please upload a PDF file'}), 400
         
-        # Deduct credit before processing
-        current_user.used_credits += 1
-        db.session.commit()
+        # Validate file size on backend (50MB limit)
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        if file_size > 50 * 1024 * 1024:
+            return jsonify({'error': 'File size exceeds 50MB limit'}), 400
         
-        # Log credit usage
-        log_credit_transaction(current_user, -1, 'conversion', f'PDF conversion: {filename}')
-        logger.info(f"Credit deducted for {current_user.email}. Remaining: {current_user.get_available_credits()}")
-        
-        # Save uploaded file
+        # Save uploaded file first (to get filename)
         filename = secure_filename(file.filename)
         temp_filename = f"{uuid.uuid4().hex}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
         file.save(filepath)
+        
+        # Deduct credit after file is saved successfully
+        current_user.used_credits += 1
+        db.session.commit()
+        
+        # Log credit usage (filename is now defined)
+        log_credit_transaction(current_user, -1, 'conversion', f'PDF conversion: {filename}')
+        logger.info(f"Credit deducted for {current_user.email}. Remaining: {current_user.get_available_credits()}")
         
         # Get conversion options from form
         options = {
@@ -1035,6 +1042,14 @@ def cleanup_old_files():
             
             for task_id in results_to_remove:
                 del conversion_results[task_id]
+            
+            # Prevent memory leak: limit total stored results to 1000
+            if len(conversion_results) > 1000:
+                sorted_keys = sorted(conversion_results.keys(), 
+                                   key=lambda k: conversion_results[k]['timestamp'])
+                for key in sorted_keys[:len(conversion_results) - 1000]:
+                    del conversion_results[key]
+                deleted_tasks += len(sorted_keys[:len(conversion_results) - 1000])
         
         # Clean up old history entries
         with file_history_lock:
@@ -1098,4 +1113,5 @@ if __name__ == '__main__':
     logger.info("Automatic cleanup thread started (runs every 30 minutes)")
     
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', debug=False, port=port)
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', debug=debug_mode, port=port)

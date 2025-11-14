@@ -2,9 +2,16 @@
 import requests
 import sys
 
-# Configuration
-RENDER_URL = "https://jdpdftoexcel.online/"  # Replace with your Render URL
-ADMIN_KEY = "ZpWm8My21q7vJbNs8yT4NSCaifigunTJyGUNOuflch0"  # Replace with your admin key
+import os
+
+# Configuration - Use environment variables for security
+RENDER_URL = os.environ.get('RENDER_URL', "https://jdpdftoexcel.online/")
+ADMIN_KEY = os.environ.get('ADMIN_KEY', '')  # Set via environment variable
+
+if not ADMIN_KEY:
+    print("⚠️  Warning: ADMIN_KEY environment variable not set!")
+    print("Set it with: $env:ADMIN_KEY='your_key_here' (PowerShell)")
+    sys.exit(1)
 
 def add_credits_to_user(email, credits):
     """Add credits to a specific user"""
