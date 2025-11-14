@@ -68,6 +68,9 @@ class User(UserMixin, db.Model):
                 # Don't reset used_credits - keep the history
             self.last_reset_date = today
             db.session.commit()
+            
+            # Log daily credit bonus
+            log_credit_transaction(self, 3, 'daily', 'Daily credit bonus')
     
     def set_password(self, password):
         """Hash and set password"""
@@ -106,9 +109,42 @@ class Conversion(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     task_id = db.Column(db.String(100), unique=True)
 
+class CreditTransaction(db.Model):
+    __tablename__ = 'credit_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)  # Positive for credits added, negative for used
+    transaction_type = db.Column(db.String(50), nullable=False)  # 'signup', 'referral', 'purchase', 'daily', 'conversion'
+    description = db.Column(db.String(255))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    balance_after = db.Column(db.Integer, nullable=False)  # Available credits after transaction
+    
+    # Relationship
+    user = db.relationship('User', backref='credit_history')
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# Helper function to log credit transactions
+def log_credit_transaction(user, amount, transaction_type, description):
+    """Log a credit transaction to the history"""
+    try:
+        balance_after = user.get_available_credits()
+        transaction = CreditTransaction(
+            user_id=user.id,
+            amount=amount,
+            transaction_type=transaction_type,
+            description=description,
+            balance_after=balance_after
+        )
+        db.session.add(transaction)
+        db.session.commit()
+        logger.info(f"Credit transaction logged: {user.email} - {amount} - {transaction_type}")
+    except Exception as e:
+        logger.error(f"Failed to log credit transaction: {e}")
+        db.session.rollback()
 
 # Store conversion progress with thread safety
 conversion_progress = {}
@@ -387,6 +423,9 @@ def signup():
         db.session.add(user)
         db.session.commit()
         
+        # Log signup bonus
+        log_credit_transaction(user, 20, 'signup', 'Welcome bonus - 20 credits')
+        
         # Award referral credits if referred
         if referral_code:
             referrer = User.query.filter_by(referral_code=referral_code).first()
@@ -409,7 +448,10 @@ def signup():
                     )
                     db.session.add(ref_log)
                     db.session.commit()
-                    logger.info(f"Awarded 5 credits to {referrer.email} for referring {email}")
+                    
+                    # Log referral transaction
+                    log_credit_transaction(referrer, 10, 'referral', f'Referral bonus from {email}')
+                    logger.info(f"Awarded 10 credits to {referrer.email} for referring {email}")
         
         # Log user in
         login_user(user, remember=True)
@@ -613,6 +655,9 @@ def upload_file():
         # Deduct credit before processing
         current_user.used_credits += 1
         db.session.commit()
+        
+        # Log credit usage
+        log_credit_transaction(current_user, -1, 'conversion', f'PDF conversion: {filename}')
         logger.info(f"Credit deducted for {current_user.email}. Remaining: {current_user.get_available_credits()}")
         
         # Save uploaded file
@@ -875,6 +920,7 @@ def admin_add_credits():
             for user in users:
                 old_total = user.total_credits
                 user.total_credits += credits
+                log_credit_transaction(user, credits, 'purchase', f'Admin credit purchase - {credits} credits')
                 updated_users.append({
                     'email': user.email,
                     'old_total': old_total,
@@ -897,6 +943,9 @@ def admin_add_credits():
             user.total_credits += credits
             db.session.commit()
             
+            # Log purchase transaction
+            log_credit_transaction(user, credits, 'purchase', f'Credit purchase - {credits} credits')
+            
             return jsonify({
                 'success': True,
                 'message': f'Added {credits} credits to {email}',
@@ -910,6 +959,35 @@ def admin_add_credits():
             
     except Exception as e:
         logger.error(f"Add credits error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/credit-history')
+@login_required
+def get_credit_history():
+    """Get user's credit transaction history"""
+    try:
+        transactions = CreditTransaction.query.filter_by(user_id=current_user.id)\
+            .order_by(CreditTransaction.timestamp.desc())\
+            .limit(50)\
+            .all()
+        
+        history = []
+        for t in transactions:
+            history.append({
+                'id': t.id,
+                'amount': t.amount,
+                'type': t.transaction_type,
+                'description': t.description,
+                'balance_after': t.balance_after,
+                'timestamp': t.timestamp.isoformat()
+            })
+        
+        return jsonify({
+            'history': history,
+            'current_balance': current_user.get_available_credits()
+        }), 200
+    except Exception as e:
+        logger.error(f"Credit history error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/cleanup')

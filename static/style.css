@@ -1898,3 +1898,132 @@ body.dark-mode .footer p {
     background: #667eea;
     color: white;
 }
+
+/* Credit History Styles */
+.credit-history-container {
+    background: white;
+    border-radius: 10px;
+    padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.credit-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.credit-history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid #667eea;
+    transition: all 0.3s;
+}
+
+.credit-history-item:hover {
+    background: #e9ecef;
+    transform: translateX(5px);
+}
+
+.credit-history-item.credit-added {
+    border-left-color: #4caf50;
+}
+
+.credit-history-item.credit-used {
+    border-left-color: #f44336;
+}
+
+.history-info {
+    flex: 1;
+}
+
+.history-type {
+    font-weight: 600;
+    color: #333;
+    text-transform: capitalize;
+    margin-bottom: 4px;
+}
+
+.history-description {
+    font-size: 13px;
+    color: #666;
+}
+
+.history-amount {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.amount-value {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.amount-value.positive {
+    color: #4caf50;
+}
+
+.amount-value.negative {
+    color: #f44336;
+}
+
+.history-date {
+    font-size: 11px;
+    color: #999;
+}
+
+.history-balance {
+    font-size: 12px;
+    color: #667eea;
+    font-weight: 600;
+}
+
+.loading-message {
+    text-align: center;
+    color: #999;
+    padding: 20px;
+}
+
+.no-history {
+    text-align: center;
+    color: #999;
+    padding: 30px;
+}
+
+.no-history i {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.3;
+}
+
+/* Dark Mode - Credit History */
+.dark-mode .credit-history-container {
+    background: #1e1e1e;
+}
+
+.dark-mode .credit-history-item {
+    background: #2c2c2c;
+}
+
+.dark-mode .credit-history-item:hover {
+    background: #3a3a3a;
+}
+
+.dark-mode .history-type {
+    color: #e0e0e0;
+}
+
+.dark-mode .history-description {
+    color: #b0b0b0;
+}
+
+.dark-mode .history-balance {
+    color: #8b9cff;
+}

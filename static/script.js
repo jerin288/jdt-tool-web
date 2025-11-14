@@ -1125,3 +1125,69 @@ function copyUPI() {
         alert('Failed to copy UPI ID');
     });
 }
+
+// Load credit history
+async function loadCreditHistory() {
+    try {
+        const response = await fetch('/api/credit-history');
+        if (!response.ok) throw new Error('Failed to load credit history');
+        
+        const data = await response.json();
+        const historyList = document.getElementById('creditHistoryList');
+        
+        if (data.history.length === 0) {
+            historyList.innerHTML = 
+                <div class=\""no-history\"">
+                    <i class=\""fas fa-inbox\""></i>
+                    <p>No credit history yet</p>
+                </div>
+            ;
+            return;
+        }
+        
+        historyList.innerHTML = '';
+        data.history.forEach(item => {
+            const isPositive = item.amount > 0;
+            const typeClass = isPositive ? 'credit-added' : 'credit-used';
+            const amountClass = isPositive ? 'positive' : 'negative';
+            const icon = getTransactionIcon(item.type);
+            const date = new Date(item.timestamp).toLocaleString();
+            
+            const historyItem = document.createElement('div');
+            historyItem.className = credit-history-item ;
+            historyItem.innerHTML = 
+                <div class=\""history-info\"">
+                    <div class=\""history-type\""><i class=\""\""></i> </div>
+                    <div class=\""history-description\""></div>
+                    <div class=\""history-date\""></div>
+                </div>
+                <div class=\""history-amount\"">
+                    <div class=\""amount-value \""></div>
+                    <div class=\""history-balance\"">Balance: </div>
+                </div>
+            ;
+            historyList.appendChild(historyItem);
+        });
+    } catch (error) {
+        console.error('Error loading credit history:', error);
+        document.getElementById('creditHistoryList').innerHTML = 
+            <div class=\""loading-message\"">Failed to load history</div>
+        ;
+    }
+}
+
+function getTransactionIcon(type) {
+    const icons = {
+        'signup': 'fas fa-user-plus',
+        'referral': 'fas fa-gift',
+        'purchase': 'fas fa-shopping-cart',
+        'daily': 'fas fa-calendar-day',
+        'conversion': 'fas fa-file-pdf'
+    };
+    return icons[type] || 'fas fa-coin';
+}
+
+// Load credit history when profile modal opens
+document.getElementById('profileBtn')?.addEventListener('click', () => {
+    loadCreditHistory();
+});
