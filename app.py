@@ -860,8 +860,8 @@ def admin_add_credits():
     """Admin endpoint to add credits to users - requires admin key"""
     try:
         # Get admin key from request
-        admin_key = request.json.get('admin_key')
-        expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here')
+        admin_key = request.json.get('admin_key', '').strip()
+        expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here').strip()
         
         if admin_key != expected_key:
             return jsonify({'error': 'Unauthorized - Invalid admin key'}), 403
