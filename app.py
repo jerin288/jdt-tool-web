@@ -845,6 +845,16 @@ def get_history():
         logger.error(f"History error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/admin/test')
+def admin_test():
+    """Test endpoint to verify deployment and env vars"""
+    import os
+    return jsonify({
+        'status': 'ok',
+        'admin_key_set': 'ADMIN_KEY' in os.environ,
+        'admin_key_length': len(os.environ.get('ADMIN_KEY', '')) if 'ADMIN_KEY' in os.environ else 0
+    }), 200
+
 @app.route('/admin/add_credits', methods=['POST'])
 def admin_add_credits():
     """Admin endpoint to add credits to users - requires admin key"""
