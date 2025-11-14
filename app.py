@@ -1070,6 +1070,27 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         logger.info("Database initialized")
+        
+        # Add initial credit history for existing users (one-time migration)
+        try:
+            existing_users = User.query.filter(~User.id.in_(
+                db.session.query(CreditTransaction.user_id).distinct()
+            )).all()
+            
+            if existing_users:
+                for user in existing_users:
+                    transaction = CreditTransaction(
+                        user_id=user.id,
+                        amount=20,
+                        transaction_type='signup',
+                        description='Initial signup bonus',
+                        balance_after=user.total_credits
+                    )
+                    db.session.add(transaction)
+                db.session.commit()
+                logger.info(f"Added signup transactions for {len(existing_users)} existing users")
+        except Exception as e:
+            logger.warning(f"Credit history migration: {e}")
     
     # Start automatic cleanup thread
     cleanup_thread = threading.Thread(target=automatic_cleanup, daemon=True)
