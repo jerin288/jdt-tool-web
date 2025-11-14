@@ -845,6 +845,68 @@ def get_history():
         logger.error(f"History error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/admin/add_credits', methods=['POST'])
+def admin_add_credits():
+    """Admin endpoint to add credits to users - requires admin key"""
+    try:
+        # Get admin key from request
+        admin_key = request.json.get('admin_key')
+        expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here')
+        
+        if admin_key != expected_key:
+            return jsonify({'error': 'Unauthorized - Invalid admin key'}), 403
+        
+        email = request.json.get('email')
+        credits = request.json.get('credits', 0)
+        add_to_all = request.json.get('add_to_all', False)
+        
+        if not email and not add_to_all:
+            return jsonify({'error': 'Email or add_to_all required'}), 400
+        
+        if add_to_all:
+            # Add credits to all users
+            users = User.query.all()
+            updated_users = []
+            for user in users:
+                old_total = user.total_credits
+                user.total_credits += credits
+                updated_users.append({
+                    'email': user.email,
+                    'old_total': old_total,
+                    'new_total': user.total_credits,
+                    'available': user.get_available_credits()
+                })
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'message': f'Added {credits} credits to all {len(users)} users',
+                'updated_users': updated_users
+            }), 200
+        else:
+            # Add credits to specific user
+            user = User.query.filter_by(email=email).first()
+            if not user:
+                return jsonify({'error': f'User {email} not found'}), 404
+            
+            old_total = user.total_credits
+            user.total_credits += credits
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Added {credits} credits to {email}',
+                'user': {
+                    'email': user.email,
+                    'old_total': old_total,
+                    'new_total': user.total_credits,
+                    'available': user.get_available_credits()
+                }
+            }), 200
+            
+    except Exception as e:
+        logger.error(f"Add credits error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/cleanup')
 def cleanup_old_files():
     """Clean up old temporary files and task data (can be called periodically)"""
