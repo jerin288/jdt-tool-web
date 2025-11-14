@@ -1154,25 +1154,25 @@ async function loadCreditHistory() {
             const date = new Date(item.timestamp).toLocaleString();
             
             const historyItem = document.createElement('div');
-            historyItem.className = credit-history-item ;
-            historyItem.innerHTML = 
-                <div class=\""history-info\"">
-                    <div class=\""history-type\""><i class=\""\""></i> </div>
-                    <div class=\""history-description\""></div>
-                    <div class=\""history-date\""></div>
+            historyItem.className = 'credit-history-item';
+            historyItem.innerHTML = `
+                <div class="history-info">
+                    <div class="history-type"><i class="${icon}"></i> ${item.type}</div>
+                    <div class="history-description">${item.description}</div>
+                    <div class="history-date">${date}</div>
                 </div>
-                <div class=\""history-amount\"">
-                    <div class=\""amount-value \""></div>
-                    <div class=\""history-balance\"">Balance: </div>
+                <div class="history-amount">
+                    <div class="amount-value ${amountClass}">${isPositive ? '+' : ''}${item.amount}</div>
+                    <div class="history-balance">Balance: ${item.balance_after}</div>
                 </div>
-            ;
+            `;
             historyList.appendChild(historyItem);
         });
     } catch (error) {
         console.error('Error loading credit history:', error);
-        document.getElementById('creditHistoryList').innerHTML = 
-            <div class=\""loading-message\"">Failed to load history</div>
-        ;
+        document.getElementById('creditHistoryList').innerHTML = `
+            <div class="loading-message">Failed to load history</div>
+        `;
     }
 }
 
