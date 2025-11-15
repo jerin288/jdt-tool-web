@@ -22,16 +22,20 @@ def add_credits_to_user(email, credits):
         "credits": credits
     }
     
-    response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        data = response.json()
-        print(f"✅ Success: {data['message']}")
-        if 'user' in data:
-            user = data['user']
-            print(f"   {user['email']}: {user['old_total']} → {user['new_total']} total credits")
-            print(f"   Available: {user['available']} credits")
-    else:
-        print(f"❌ Error: {response.json().get('error', 'Unknown error')}")
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✅ Success: {data['message']}")
+            if 'user' in data:
+                user = data['user']
+                print(f"   {user['email']}: {user['old_total']} → {user['new_total']} total credits")
+                print(f"   Available: {user['available']} credits")
+        else:
+            print(f"❌ Error: {response.json().get('error', 'Unknown error')}")
+            sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Connection error: {e}")
         sys.exit(1)
 
 def add_credits_to_all(credits):
@@ -43,15 +47,19 @@ def add_credits_to_all(credits):
         "credits": credits
     }
     
-    response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        data = response.json()
-        print(f"✅ Success: {data['message']}")
-        print("\nUpdated users:")
-        for user in data['updated_users']:
-            print(f"  {user['email']}: {user['old_total']} → {user['new_total']} (available: {user['available']})")
-    else:
-        print(f"❌ Error: {response.json().get('error', 'Unknown error')}")
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✅ Success: {data['message']}")
+            print("\nUpdated users:")
+            for user in data['updated_users']:
+                print(f"  {user['email']}: {user['old_total']} → {user['new_total']} (available: {user['available']})")
+        else:
+            print(f"❌ Error: {response.json().get('error', 'Unknown error')}")
+            sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Connection error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
@@ -69,11 +77,25 @@ if __name__ == "__main__":
     
     if choice == "1":
         email = input("Enter user email: ").strip()
-        credits = int(input("Enter credits to add: ").strip())
-        add_credits_to_user(email, credits)
+        try:
+            credits = int(input("Enter credits to add: ").strip())
+            if credits <= 0:
+                print("❌ Credits must be positive!")
+                sys.exit(1)
+            add_credits_to_user(email, credits)
+        except ValueError:
+            print("❌ Invalid number!")
+            sys.exit(1)
     elif choice == "2":
-        credits = int(input("Enter credits to add to all users: ").strip())
-        add_credits_to_all(credits)
+        try:
+            credits = int(input("Enter credits to add to all users: ").strip())
+            if credits <= 0:
+                print("❌ Credits must be positive!")
+                sys.exit(1)
+            add_credits_to_all(credits)
+        except ValueError:
+            print("❌ Invalid number!")
+            sys.exit(1)
     else:
         print("Invalid choice!")
         sys.exit(1)

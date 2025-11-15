@@ -1,1194 +1,1634 @@
-// Global variables
-let currentTaskId = null;
-let progressInterval = null;
-let downloadFilename = null;
-let hasPreviewData = false;
-let currentUser = null;
-let userReferralCode = null;
+// ============================================================================
+// JDT PDF CONVERTER - FRONTEND JAVASCRIPT
+// Version: 2.0 (Bug-Fixed)
+// Last Updated: November 15, 2025
+// ============================================================================
 
-// Settings Templates
-const TEMPLATES_KEY = 'jdt_pdf_templates';
-const DARK_MODE_KEY = 'jdt_dark_mode';
+(function() {
+    'use strict';
 
-// DOM Elements
-const uploadForm = document.getElementById('uploadForm');
-const fileInput = document.getElementById('pdfFile');
-const fileName = document.getElementById('fileName');
-const fileInfo = document.getElementById('fileInfo');
-const convertBtn = document.getElementById('convertBtn');
-const progressSection = document.getElementById('progressSection');
-const progressBar = document.getElementById('progressBar');
-const statusMessage = document.getElementById('statusMessage');
-const resultSection = document.getElementById('resultSection');
-const resultDetails = document.getElementById('resultDetails');
-const errorSection = document.getElementById('errorSection');
-const errorMessage = document.getElementById('errorMessage');
-const downloadBtn = document.getElementById('downloadBtn');
-const previewDataBtn = document.getElementById('previewDataBtn');
-const convertAnotherBtn = document.getElementById('convertAnotherBtn');
-const tryAgainBtn = document.getElementById('tryAgainBtn');
-const dropOverlay = document.getElementById('dropOverlay');
-
-// New UI elements
-const darkModeToggle = document.getElementById('darkModeToggle');
-const historyBtn = document.getElementById('historyBtn');
-const templatesBtn = document.getElementById('templatesBtn');
-const templateSelect = document.getElementById('templateSelect');
-const saveTemplateBtn = document.getElementById('saveTemplateBtn');
-const previewModal = document.getElementById('previewModal');
-const historyModal = document.getElementById('historyModal');
-const templateModal = document.getElementById('templateModal');
-
-// Auth UI elements
-const loginBtn = document.getElementById('loginBtn');
-const loginModal = document.getElementById('loginModal');
-const closeLoginModal = document.getElementById('closeLoginModal');
-const loginForm = document.getElementById('loginForm');
-const creditsBadge = document.getElementById('creditsBadge');
-const creditsCount = document.getElementById('creditsCount');
-const userMenu = document.getElementById('userMenu');
-const userMenuBtn = document.getElementById('userMenuBtn');
-const userDropdown = document.getElementById('userDropdown');
-const userEmail = document.getElementById('userEmail');
-const logoutBtn = document.getElementById('logoutBtn');
-const referralBtn = document.getElementById('referralBtn');
-const dashboardBtn = document.getElementById('dashboardBtn');
-const outOfCreditsModal = document.getElementById('outOfCreditsModal');
-const closeCreditsModal = document.getElementById('closeCreditsModal');
-const referralModal = document.getElementById('referralModal');
-const closeReferralModal = document.getElementById('closeReferralModal');
-
-// File Upload Handling
-fileInput.addEventListener('change', function(e) {
-    handleFileSelect(e.target.files[0]);
-});
-
-function handleFileSelect(file) {
-    if (file && file.type === 'application/pdf') {
-        // Sanitize filename for display
-        const sanitizedName = file.name.replace(/[<>"']/g, '');
-        fileName.textContent = sanitizedName;
-        fileInfo.textContent = `Size: ${formatFileSize(file.size)}`;
-        document.querySelector('.file-upload-label').classList.add('has-file');
-    } else if (file) {
-        alert('Please select a valid PDF file');
-        fileInput.value = '';
-        fileName.textContent = 'Choose PDF file or drag & drop here';
-        fileInfo.textContent = '';
-        document.querySelector('.file-upload-label').classList.remove('has-file');
-    }
-}
-
-// Drag and Drop
-let dragCounter = 0;
-
-document.addEventListener('dragenter', function(e) {
-    e.preventDefault();
-    dragCounter++;
-    dropOverlay.style.display = 'flex';
-});
-
-document.addEventListener('dragleave', function(e) {
-    e.preventDefault();
-    dragCounter--;
-    if (dragCounter === 0) {
-        dropOverlay.style.display = 'none';
-    }
-});
-
-document.addEventListener('dragover', function(e) {
-    e.preventDefault();
-});
-
-document.addEventListener('drop', function(e) {
-    e.preventDefault();
-    dragCounter = 0;
-    dropOverlay.style.display = 'none';
+    // ========================================================================
+    // CONFIGURATION
+    // ========================================================================
     
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        fileInput.files = files;
-        handleFileSelect(files[0]);
-    }
-});
+    const CONFIG = {
+        TEMPLATES_KEY: 'jdt_pdf_templates',
+        DARK_MODE_KEY: 'jdt_dark_mode',
+        MAX_TEMPLATE_SIZE: 100000, // 100KB limit for localStorage
+        MAX_TEMPLATES: 20,
+        MAX_PROGRESS_TIME: 600000, // 10 minutes
+        PROGRESS_CHECK_INTERVAL: 500, // 500ms
+        UPLOAD_TIMEOUT: 60000, // 60 seconds
+        MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
+        UPI_ID: 'jerinad123@pingpay' // Centralized configuration
+    };
 
-// Form Submission
-uploadForm.addEventListener('submit', async function(e) {
-    e.preventDefault();
+    // ========================================================================
+    // STATE MANAGEMENT
+    // ========================================================================
     
-    if (!fileInput.files[0]) {
-        alert('Please select a PDF file');
-        return;
+    const state = {
+        currentTaskId: null,
+        progressInterval: null,
+        downloadFilename: null,
+        hasPreviewData: false,
+        currentUser: null,
+        userReferralCode: null,
+        currentAuthMode: 'login',
+        isCheckingStatus: false // Prevent race conditions
+    };
+
+    // ========================================================================
+    // DOM ELEMENTS - Cached for performance
+    // ========================================================================
+    
+    const elements = {
+        // Form elements
+        uploadForm: null,
+        fileInput: null,
+        fileName: null,
+        fileInfo: null,
+        convertBtn: null,
+        
+        // Status sections
+        progressSection: null,
+        progressBar: null,
+        statusMessage: null,
+        resultSection: null,
+        resultDetails: null,
+        errorSection: null,
+        errorMessage: null,
+        
+        // Action buttons
+        downloadBtn: null,
+        previewDataBtn: null,
+        convertAnotherBtn: null,
+        tryAgainBtn: null,
+        
+        // UI elements
+        dropOverlay: null,
+        darkModeToggle: null,
+        historyBtn: null,
+        templatesBtn: null,
+        templateSelect: null,
+        saveTemplateBtn: null,
+        
+        // Modals
+        previewModal: null,
+        historyModal: null,
+        templateModal: null,
+        loginModal: null,
+        outOfCreditsModal: null,
+        referralModal: null,
+        profileModal: null,
+        
+        // Auth elements
+        loginBtn: null,
+        creditsBadge: null,
+        creditsCount: null,
+        userMenu: null,
+        userMenuBtn: null,
+        userDropdown: null,
+        userEmail: null
+    };
+
+    // ========================================================================
+    // UTILITY FUNCTIONS
+    // ========================================================================
+    
+    /**
+     * Escape HTML to prevent XSS attacks
+     */
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
     }
-    
-    // Validate file size (50MB limit)
-    if (fileInput.files[0].size > 50 * 1024 * 1024) {
-        alert('File size exceeds 50MB limit');
-        return;
+
+    /**
+     * Show toast notification
+     */
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast-message toast-${type}`;
+        const icon = type === 'success' ? 'check' : type === 'error' ? 'exclamation-circle' : 'info-circle';
+        toast.innerHTML = `<i class="fas fa-${icon}"></i> ${escapeHtml(message)}`;
+        document.body.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
+
+    /**
+     * Format file size in human-readable format
+     */
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    /**
+     * Modern clipboard copy (replaces deprecated execCommand)
+     */
+    async function copyToClipboard(text) {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } else {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    return true;
+                } finally {
+                    document.body.removeChild(textArea);
+                }
+            }
+        } catch (err) {
+            console.error('Copy failed:', err);
+            return false;
+        }
+    }
+
+    /**
+     * Sanitize template name
+     */
+    function sanitizeTemplateName(name) {
+        return name.replace(/[<>"'&]/g, '').trim().substring(0, 50);
+    }
+
+    /**
+     * Validate email format
+     */
+    function isValidEmail(email) {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(email);
+    }
+
+    /**
+     * Get transaction icon based on type
+     */
+    function getTransactionIcon(type) {
+        const icons = {
+            'signup': 'fas fa-user-plus',
+            'referral': 'fas fa-gift',
+            'purchase': 'fas fa-shopping-cart',
+            'daily': 'fas fa-calendar-day',
+            'conversion': 'fas fa-file-pdf',
+            'refund': 'fas fa-undo'
+        };
+        return icons[type] || 'fas fa-coins';
+    }
+
+    /**
+     * Initialize all DOM element references
+     */
+    function initializeElements() {
+        // Form elements
+        elements.uploadForm = document.getElementById('uploadForm');
+        elements.fileInput = document.getElementById('pdfFile');
+        elements.fileName = document.getElementById('fileName');
+        elements.fileInfo = document.getElementById('fileInfo');
+        elements.convertBtn = document.getElementById('convertBtn');
+        
+        // Status sections
+        elements.progressSection = document.getElementById('progressSection');
+        elements.progressBar = document.getElementById('progressBar');
+        elements.statusMessage = document.getElementById('statusMessage');
+        elements.resultSection = document.getElementById('resultSection');
+        elements.resultDetails = document.getElementById('resultDetails');
+        elements.errorSection = document.getElementById('errorSection');
+        elements.errorMessage = document.getElementById('errorMessage');
+        
+        // Action buttons
+        elements.downloadBtn = document.getElementById('downloadBtn');
+        elements.previewDataBtn = document.getElementById('previewDataBtn');
+        elements.convertAnotherBtn = document.getElementById('convertAnotherBtn');
+        elements.tryAgainBtn = document.getElementById('tryAgainBtn');
+        
+        // UI elements
+        elements.dropOverlay = document.getElementById('dropOverlay');
+        elements.darkModeToggle = document.getElementById('darkModeToggle');
+        elements.historyBtn = document.getElementById('historyBtn');
+        elements.templatesBtn = document.getElementById('templatesBtn');
+        elements.templateSelect = document.getElementById('templateSelect');
+        elements.saveTemplateBtn = document.getElementById('saveTemplateBtn');
+        
+        // Modals
+        elements.previewModal = document.getElementById('previewModal');
+        elements.historyModal = document.getElementById('historyModal');
+        elements.templateModal = document.getElementById('templateModal');
+        elements.loginModal = document.getElementById('loginModal');
+        elements.outOfCreditsModal = document.getElementById('outOfCreditsModal');
+        elements.referralModal = document.getElementById('referralModal');
+        elements.profileModal = document.getElementById('profileModal');
+        
+        // Auth elements
+        elements.loginBtn = document.getElementById('loginBtn');
+        elements.creditsBadge = document.getElementById('creditsBadge');
+        elements.creditsCount = document.getElementById('creditsCount');
+        elements.userMenu = document.getElementById('userMenu');
+        elements.userMenuBtn = document.getElementById('userMenuBtn');
+        elements.userDropdown = document.getElementById('userDropdown');
+        elements.userEmail = document.getElementById('userEmail');
+    }
+
+    // ========================================================================
+    // FILE UPLOAD HANDLING
+    // ========================================================================
     
-    // Validate page range format
-    const pageRange = document.getElementById('pageRange').value.trim();
-    if (pageRange && pageRange.toLowerCase() !== 'all') {
-        const pageRangeRegex = /^\d+(-\d+)?(,\s*\d+(-\d+)?)*$/;
-        if (!pageRangeRegex.test(pageRange)) {
-            alert('Invalid page range format. Use "all", "1-3", or "1,3,5"');
+    function handleFileSelect(file) {
+        if (!file) return;
+        
+        if (file.type !== 'application/pdf') {
+            showToast('Please select a valid PDF file', 'error');
+            resetFileInput();
             return;
         }
-    }
-    
-    // Prepare form data
-    const formData = new FormData();
-    formData.append('pdf_file', fileInput.files[0]);
-    formData.append('page_range', document.getElementById('pageRange').value);
-    formData.append('extract_mode', document.getElementById('extractMode').value);
-    formData.append('output_format', document.getElementById('outputFormat').value);
-    formData.append('merge_tables', document.getElementById('mergeTables').checked);
-    formData.append('include_headers', document.getElementById('includeHeaders').checked);
-    formData.append('clean_data', document.getElementById('cleanData').checked);
-    formData.append('password', document.getElementById('password').value);
-    
-    // Reset UI
-    hideAllSections();
-    progressSection.style.display = 'block';
-    convertBtn.disabled = true;
-    progressBar.style.width = '0%';
-    statusMessage.textContent = 'Uploading file...';
-    
-    try {
-        // Upload file and start conversion
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
         
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: formData,
-            signal: controller.signal
+        if (file.size > CONFIG.MAX_FILE_SIZE) {
+            showToast('File size exceeds 50MB limit', 'error');
+            resetFileInput();
+            return;
+        }
+        
+        if (file.size === 0) {
+            showToast('File is empty', 'error');
+            resetFileInput();
+            return;
+        }
+        
+        const sanitizedName = escapeHtml(file.name);
+        elements.fileName.textContent = sanitizedName;
+        elements.fileInfo.textContent = `Size: ${formatFileSize(file.size)}`;
+        document.querySelector('.file-upload-label')?.classList.add('has-file');
+    }
+
+    function resetFileInput() {
+        if (elements.fileInput) {
+            elements.fileInput.value = '';
+        }
+        if (elements.fileName) {
+            elements.fileName.textContent = 'Choose PDF file or drag & drop here';
+        }
+        if (elements.fileInfo) {
+            elements.fileInfo.textContent = '';
+        }
+        document.querySelector('.file-upload-label')?.classList.remove('has-file');
+    }
+
+    // ========================================================================
+    // DRAG AND DROP
+    // ========================================================================
+    
+    let dragCounter = 0;
+
+    function setupDragAndDrop() {
+        document.addEventListener('dragenter', function(e) {
+            e.preventDefault();
+            dragCounter++;
+            if (elements.dropOverlay) {
+                elements.dropOverlay.style.display = 'flex';
+            }
         });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            const error = await response.json();
-            
-            // Handle out of credits error
-            if (error.error === 'out_of_credits') {
-                convertBtn.disabled = false;
-                hideAllSections();
-                showOutOfCreditsModal();
-                return;
+
+        document.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter === 0 && elements.dropOverlay) {
+                elements.dropOverlay.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('dragover', function(e) {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dragCounter = 0;
+            if (elements.dropOverlay) {
+                elements.dropOverlay.style.display = 'none';
             }
             
-            throw new Error(error.error || 'Upload failed');
-        }
-        
-        const result = await response.json();
-        currentTaskId = result.task_id;
-        
-        // Update credits display
-        if (result.credits_remaining !== undefined) {
-            creditsCount.textContent = result.credits_remaining;
-        }
-        
-        // Start monitoring progress
-        startProgressMonitoring();
-        
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            showError('Upload timed out. Please try again with a smaller file.');
-        } else {
-            showError(error.message);
-        }
-        convertBtn.disabled = false;
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+                elements.fileInput.files = files;
+                handleFileSelect(files[0]);
+            }
+        });
     }
-});
 
-// Progress Monitoring
-let progressTimeout = 0;
-const MAX_PROGRESS_TIME = 600000; // 10 minutes max
-
-function startProgressMonitoring() {
-    if (progressInterval) {
-        clearInterval(progressInterval);
-    }
+    // ========================================================================
+    // FORM SUBMISSION
+    // ========================================================================
     
-    const startTime = Date.now();
-    
-    progressInterval = setInterval(async () => {
+    async function handleFormSubmit(e) {
+        e.preventDefault();
+        
+        if (!elements.fileInput?.files[0]) {
+            showToast('Please select a PDF file', 'error');
+            return;
+        }
+        
+        // Validate file size
+        if (elements.fileInput.files[0].size > CONFIG.MAX_FILE_SIZE) {
+            showToast('File size exceeds 50MB limit', 'error');
+            return;
+        }
+        
+        // Validate page range format
+        const pageRange = document.getElementById('pageRange')?.value?.trim() || '';
+        if (pageRange && pageRange.toLowerCase() !== 'all') {
+            const pageRangeRegex = /^\d+(-\d+)?(,\s*\d+(-\d+)?)*$/;
+            if (!pageRangeRegex.test(pageRange)) {
+                showToast('Invalid page range format. Use "all", "1-3", or "1,3,5"', 'error');
+                return;
+            }
+        }
+        
+        // Prepare form data
+        const formData = new FormData();
+        formData.append('pdf_file', elements.fileInput.files[0]);
+        formData.append('page_range', document.getElementById('pageRange')?.value || 'all');
+        formData.append('extract_mode', document.getElementById('extractMode')?.value || 'tables');
+        formData.append('output_format', document.getElementById('outputFormat')?.value || 'xlsx');
+        formData.append('merge_tables', document.getElementById('mergeTables')?.checked || false);
+        formData.append('include_headers', document.getElementById('includeHeaders')?.checked !== false);
+        formData.append('clean_data', document.getElementById('cleanData')?.checked !== false);
+        formData.append('password', document.getElementById('password')?.value || '');
+        
+        // Reset UI
+        hideAllSections();
+        if (elements.progressSection) elements.progressSection.style.display = 'block';
+        if (elements.convertBtn) elements.convertBtn.disabled = true;
+        if (elements.progressBar) elements.progressBar.style.width = '0%';
+        if (elements.statusMessage) elements.statusMessage.textContent = 'Uploading file...';
+        
         try {
-            // Check for timeout
-            if (Date.now() - startTime > MAX_PROGRESS_TIME) {
-                clearInterval(progressInterval);
-                showError('Conversion timed out. Please try again with a smaller file or fewer pages.');
-                return;
-            }
+            // Upload file with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.UPLOAD_TIMEOUT);
             
-            const response = await fetch(`/progress/${currentTaskId}`);
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
             if (!response.ok) {
-                throw new Error('Failed to get progress');
+                const error = await response.json();
+                
+                // Handle out of credits error
+                if (error.error === 'out_of_credits') {
+                    if (elements.convertBtn) elements.convertBtn.disabled = false;
+                    hideAllSections();
+                    showOutOfCreditsModal();
+                    return;
+                }
+                
+                throw new Error(error.error || 'Upload failed');
             }
             
-            const progress = await response.json();
-            updateProgress(progress);
+            const result = await response.json();
+            state.currentTaskId = result.task_id;
             
-            if (progress.status === 'completed') {
-                clearInterval(progressInterval);
-                showSuccess(progress);
-            } else if (progress.status === 'error') {
-                clearInterval(progressInterval);
-                showError(progress.message);
+            // Update credits display
+            if (result.credits_remaining !== undefined && elements.creditsCount) {
+                elements.creditsCount.textContent = result.credits_remaining;
             }
+            
+            // Start monitoring progress
+            startProgressMonitoring();
             
         } catch (error) {
-            clearInterval(progressInterval);
-            showError('Failed to monitor progress. The conversion may still be running.');
-            convertBtn.disabled = false;
+            if (error.name === 'AbortError') {
+                showError('Upload timed out. Please try again with a smaller file.');
+            } else {
+                showError(error.message);
+            }
+            if (elements.convertBtn) elements.convertBtn.disabled = false;
         }
-    }, 500);
-}
-
-function updateProgress(progress) {
-    if (progress.progress) {
-        progressBar.style.width = `${progress.progress}%`;
     }
-    if (progress.message) {
-        statusMessage.textContent = progress.message;
-    }
-}
 
-// Success Handling
-function showSuccess(progress) {
-    hideAllSections();
-    resultSection.style.display = 'block';
+    // ========================================================================
+    // PROGRESS MONITORING
+    // ========================================================================
     
-    downloadFilename = progress.output_file;
-    hasPreviewData = progress.has_preview || false;
-    
-    // Show preview button if data is available
-    if (hasPreviewData) {
-        previewDataBtn.style.display = 'inline-flex';
-    } else {
-        previewDataBtn.style.display = 'none';
-    }
-    
-    // Build result details
-    let details = '<div class="result-details">';
-    if (progress.table_count > 0) {
-        details += `<p><strong>Tables extracted:</strong> ${progress.table_count}</p>`;
-    }
-    if (progress.text_count > 0) {
-        details += `<p><strong>Text pages extracted:</strong> ${progress.text_count}</p>`;
-    }
-    details += `<p><strong>Output format:</strong> ${downloadFilename.endsWith('.xlsx') ? 'Excel (.xlsx)' : 'CSV (.csv)'}</p>`;
-    details += '</div>';
-    
-    resultDetails.innerHTML = details;
-    convertBtn.disabled = false;
-}
-
-// Error Handling
-function showError(message) {
-    hideAllSections();
-    errorSection.style.display = 'block';
-    errorMessage.textContent = message || 'An unexpected error occurred';
-    convertBtn.disabled = false;
-}
-
-// Download Handling
-downloadBtn.addEventListener('click', function() {
-    if (downloadFilename) {
-        window.location.href = `/download/${downloadFilename}`;
-    }
-});
-
-// Reset Functions
-convertAnotherBtn.addEventListener('click', resetForm);
-tryAgainBtn.addEventListener('click', resetForm);
-
-function resetForm() {
-    uploadForm.reset();
-    fileInput.value = '';
-    fileName.textContent = 'Choose PDF file or drag & drop here';
-    fileInfo.textContent = '';
-    document.querySelector('.file-upload-label').classList.remove('has-file');
-    hideAllSections();
-    currentTaskId = null;
-    downloadFilename = null;
-    if (progressInterval) {
-        clearInterval(progressInterval);
-    }
-}
-
-function hideAllSections() {
-    progressSection.style.display = 'none';
-    resultSection.style.display = 'none';
-    errorSection.style.display = 'none';
-}
-
-// Utility Functions
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-}
-
-// Initialize
-document.addEventListener('DOMContentLoaded', function() {
-    // Set default values
-    document.getElementById('pageRange').value = 'all';
-    document.getElementById('includeHeaders').checked = true;
-    document.getElementById('cleanData').checked = true;
-    
-    // Initialize features
-    initializeDarkMode();
-    loadTemplates();
-});
-
-// ============================================================================
-// DARK MODE FEATURE
-// ============================================================================
-
-function initializeDarkMode() {
-    const isDarkMode = localStorage.getItem(DARK_MODE_KEY) === 'true';
-    if (isDarkMode) {
-        document.body.classList.add('dark-mode');
-        darkModeToggle.innerHTML = '<i class="fas fa-sun"></i>';
-    }
-}
-
-darkModeToggle.addEventListener('click', function() {
-    document.body.classList.toggle('dark-mode');
-    const isDark = document.body.classList.contains('dark-mode');
-    localStorage.setItem(DARK_MODE_KEY, isDark);
-    darkModeToggle.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
-});
-
-// ============================================================================
-// DATA PREVIEW FEATURE
-// ============================================================================
-
-previewDataBtn.addEventListener('click', async function() {
-    if (!currentTaskId) return;
-    
-    try {
-        const response = await fetch(`/preview-data/${currentTaskId}`);
-        if (!response.ok) {
-            throw new Error('Failed to load preview data');
+    function startProgressMonitoring() {
+        // Clear any existing interval
+        if (state.progressInterval) {
+            clearInterval(state.progressInterval);
+            state.progressInterval = null;
         }
         
-        const data = await response.json();
-        displayPreviewModal(data);
-    } catch (error) {
-        alert('Unable to load preview: ' + error.message);
-    }
-});
-
-function displayPreviewModal(data) {
-    const previewContent = document.getElementById('previewContent');
-    const infoDiv = previewContent.querySelector('.preview-info');
-    const tableWrapper = previewContent.querySelector('.preview-table-wrapper');
-    
-    if (data.columns && data.rows) {
-        // Table data preview
-        infoDiv.innerHTML = `<p><strong>Showing first 50 rows</strong> of ${data.total_rows} total rows</p>`;
+        const startTime = Date.now();
+        let consecutiveErrors = 0;
+        const MAX_ERRORS = 5;
         
-        let tableHTML = '<table class="preview-table"><thead><tr>';
-        data.columns.forEach(col => {
-            tableHTML += `<th>${escapeHtml(String(col))}</th>`;
-        });
-        tableHTML += '</tr></thead><tbody>';
-        
-        data.rows.forEach(row => {
-            tableHTML += '<tr>';
-            row.forEach(cell => {
-                tableHTML += `<td>${escapeHtml(String(cell || ''))}</td>`;
-            });
-            tableHTML += '</tr>';
-        });
-        tableHTML += '</tbody></table>';
-        
-        tableWrapper.innerHTML = tableHTML;
-    } else if (data.text_preview) {
-        // Text data preview
-        infoDiv.innerHTML = '<p><strong>Text Preview</strong> (first 5 pages)</p>';
-        let textHTML = '<div class="text-preview">';
-        data.text_preview.forEach(item => {
-            textHTML += `<div class="text-page"><strong>Page ${item.Page}:</strong><pre>${escapeHtml(String(item.Text).substring(0, 500))}...</pre></div>`;
-        });
-        textHTML += '</div>';
-        tableWrapper.innerHTML = textHTML;
+        state.progressInterval = setInterval(async () => {
+            try {
+                // Check for timeout
+                if (Date.now() - startTime > CONFIG.MAX_PROGRESS_TIME) {
+                    clearInterval(state.progressInterval);
+                    state.progressInterval = null;
+                    showError('Conversion timed out. Please try again with a smaller file or fewer pages.');
+                    return;
+                }
+                
+                const response = await fetch(`/progress/${state.currentTaskId}`);
+                
+                if (!response.ok) {
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= MAX_ERRORS) {
+                        throw new Error('Failed to get progress after multiple attempts');
+                    }
+                    return; // Try again on next interval
+                }
+                
+                consecutiveErrors = 0; // Reset error counter on success
+                const progress = await response.json();
+                updateProgress(progress);
+                
+                if (progress.status === 'completed') {
+                    clearInterval(state.progressInterval);
+                    state.progressInterval = null;
+                    showSuccess(progress);
+                } else if (progress.status === 'error') {
+                    clearInterval(state.progressInterval);
+                    state.progressInterval = null;
+                    showError(progress.message);
+                }
+                
+            } catch (error) {
+                clearInterval(state.progressInterval);
+                state.progressInterval = null;
+                showError('Failed to monitor progress. The conversion may still be running.');
+                if (elements.convertBtn) elements.convertBtn.disabled = false;
+            }
+        }, CONFIG.PROGRESS_CHECK_INTERVAL);
     }
-    
-    // Show modal with flex display
-    previewModal.style.display = 'flex';
-    previewModal.classList.add('active');
-}
 
-document.getElementById('closePreviewModal').addEventListener('click', function() {
-    previewModal.style.display = 'none';
-    previewModal.classList.remove('active');
-});
-
-// ============================================================================
-// SETTINGS TEMPLATES FEATURE
-// ============================================================================
-
-function loadTemplates() {
-    const templates = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
-    templateSelect.innerHTML = '<option value="">Load a template...</option>';
-    
-    templates.forEach((template, index) => {
-        const option = document.createElement('option');
-        option.value = index;
-        option.textContent = template.name;
-        templateSelect.appendChild(option);
-    });
-}
-
-templateSelect.addEventListener('change', function() {
-    if (this.value === '') return;
-    
-    const templates = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
-    const template = templates[parseInt(this.value)];
-    
-    if (template) {
-        applyTemplate(template.settings);
-        this.value = ''; // Reset selection
+    function updateProgress(progress) {
+        if (progress.progress && elements.progressBar) {
+            elements.progressBar.style.width = `${progress.progress}%`;
+        }
+        if (progress.message && elements.statusMessage) {
+            elements.statusMessage.textContent = progress.message;
+        }
     }
-});
 
-function applyTemplate(settings) {
-    document.getElementById('pageRange').value = settings.page_range || 'all';
-    document.getElementById('extractMode').value = settings.extract_mode || 'tables';
-    document.getElementById('outputFormat').value = settings.output_format || 'xlsx';
-    document.getElementById('mergeTables').checked = settings.merge_tables || false;
-    document.getElementById('includeHeaders').checked = settings.include_headers !== false;
-    document.getElementById('cleanData').checked = settings.clean_data !== false;
-}
-
-saveTemplateBtn.addEventListener('click', function() {
-    templateModal.style.display = 'flex';
-    templateModal.classList.add('active');
-    document.getElementById('templateName').value = '';
-    document.getElementById('templateName').focus();
-});
-
-templatesBtn.addEventListener('click', function() {
-    templateModal.style.display = 'flex';
-    templateModal.classList.add('active');
-    document.getElementById('templateName').value = '';
-});
-
-document.getElementById('saveTemplateConfirm').addEventListener('click', function() {
-    const name = document.getElementById('templateName').value.trim();
-    if (!name) {
-        alert('Please enter a template name');
-        return;
-    }
+    // ========================================================================
+    // RESULT HANDLING
+    // ========================================================================
     
-    const settings = {
-        page_range: document.getElementById('pageRange').value,
-        extract_mode: document.getElementById('extractMode').value,
-        output_format: document.getElementById('outputFormat').value,
-        merge_tables: document.getElementById('mergeTables').checked,
-        include_headers: document.getElementById('includeHeaders').checked,
-        clean_data: document.getElementById('cleanData').checked
-    };
-    
-    const templates = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
-    templates.push({ name, settings });
-    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
-    
-    loadTemplates();
-    templateModal.style.display = 'none';
-    templateModal.classList.remove('active');
-    
-    // Show success message
-    const tempMsg = document.createElement('div');
-    tempMsg.className = 'toast-message';
-    tempMsg.innerHTML = '<i class="fas fa-check"></i> Template saved!';
-    document.body.appendChild(tempMsg);
-    setTimeout(() => tempMsg.remove(), 3000);
-});
-
-document.getElementById('cancelTemplateSave').addEventListener('click', function() {
-    templateModal.style.display = 'none';
-    templateModal.classList.remove('active');
-});
-
-document.getElementById('closeTemplateModal').addEventListener('click', function() {
-    templateModal.style.display = 'none';
-    templateModal.classList.remove('active');
-});
-
-// ============================================================================
-// HISTORY FEATURE
-// ============================================================================
-
-historyBtn.addEventListener('click', async function() {
-    try {
-        const response = await fetch('/history');
-        if (!response.ok) {
-            throw new Error('Failed to load history');
+    function showSuccess(progress) {
+        hideAllSections();
+        if (elements.resultSection) {
+            elements.resultSection.style.display = 'block';
         }
         
-        const data = await response.json();
-        displayHistoryModal(data.history);
-    } catch (error) {
-        alert('Unable to load history: ' + error.message);
+        state.downloadFilename = progress.output_file;
+        state.hasPreviewData = progress.has_preview || false;
+        
+        // Show preview button if data is available
+        if (elements.previewDataBtn) {
+            elements.previewDataBtn.style.display = state.hasPreviewData ? 'inline-flex' : 'none';
+        }
+        
+        // Build result details
+        let details = '<div class="result-details">';
+        if (progress.table_count > 0) {
+            details += `<p><strong>Tables extracted:</strong> ${progress.table_count}</p>`;
+        }
+        if (progress.text_count > 0) {
+            details += `<p><strong>Text pages extracted:</strong> ${progress.text_count}</p>`;
+        }
+        const format = state.downloadFilename?.endsWith('.xlsx') ? 'Excel (.xlsx)' : 'CSV (.csv)';
+        details += `<p><strong>Output format:</strong> ${format}</p>`;
+        details += '</div>';
+        
+        if (elements.resultDetails) {
+            elements.resultDetails.innerHTML = details;
+        }
+        if (elements.convertBtn) {
+            elements.convertBtn.disabled = false;
+        }
     }
-});
 
-function displayHistoryModal(history) {
-    const historyList = document.querySelector('#historyContent .history-list');
+    function showError(message) {
+        hideAllSections();
+        if (elements.errorSection) {
+            elements.errorSection.style.display = 'block';
+        }
+        if (elements.errorMessage) {
+            elements.errorMessage.textContent = message || 'An unexpected error occurred';
+        }
+        if (elements.convertBtn) {
+            elements.convertBtn.disabled = false;
+        }
+    }
+
+    function hideAllSections() {
+        if (elements.progressSection) elements.progressSection.style.display = 'none';
+        if (elements.resultSection) elements.resultSection.style.display = 'none';
+        if (elements.errorSection) elements.errorSection.style.display = 'none';
+    }
+
+    // ========================================================================
+    // RESET FORM
+    // ========================================================================
     
-    if (history.length === 0) {
-        historyList.innerHTML = '<p class="empty-message">No conversion history yet</p>';
-    } else {
-        let html = '<div class="history-items">';
-        history.reverse().forEach(item => {
-            const date = new Date(item.timestamp);
-            const statusClass = item.status === 'completed' ? 'success' : item.status === 'error' ? 'error' : 'pending';
-            const statusIcon = item.status === 'completed' ? 'check-circle' : item.status === 'error' ? 'exclamation-circle' : 'spinner';
+    function resetForm() {
+        elements.uploadForm?.reset();
+        resetFileInput();
+        hideAllSections();
+        state.currentTaskId = null;
+        state.downloadFilename = null;
+        if (state.progressInterval) {
+            clearInterval(state.progressInterval);
+            state.progressInterval = null;
+        }
+    }
+
+    // ========================================================================
+    // DARK MODE
+    // ========================================================================
+    
+    function initializeDarkMode() {
+        const isDarkMode = localStorage.getItem(CONFIG.DARK_MODE_KEY) === 'true';
+        if (isDarkMode) {
+            document.body.classList.add('dark-mode');
+            if (elements.darkModeToggle) {
+                elements.darkModeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+            }
+        }
+    }
+
+    function toggleDarkMode() {
+        document.body.classList.toggle('dark-mode');
+        const isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem(CONFIG.DARK_MODE_KEY, isDark);
+        if (elements.darkModeToggle) {
+            elements.darkModeToggle.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+        }
+    }
+
+    // ========================================================================
+    // TEMPLATES
+    // ========================================================================
+    
+    function loadTemplates() {
+        try {
+            const templatesJson = localStorage.getItem(CONFIG.TEMPLATES_KEY) || '[]';
+            const templates = JSON.parse(templatesJson);
             
-            html += `<div class="history-item ${statusClass}">
-                <div class="history-header">
-                    <span class="history-filename"><i class="fas fa-file-pdf"></i> ${escapeHtml(item.filename)}</span>
-                    <span class="history-status"><i class="fas fa-${statusIcon}"></i> ${item.status}</span>
-                </div>
-                <div class="history-details">
-                    <small>${date.toLocaleString()}</small>
-                    ${item.can_download ? `<button class="history-download-btn" onclick="downloadHistoryFile('${item.output_file}')"><i class="fas fa-download"></i> Download</button>` : ''}
-                </div>
-            </div>`;
-        });
-        html += '</div>';
-        historyList.innerHTML = html;
+            if (!elements.templateSelect) return;
+            
+            elements.templateSelect.innerHTML = '<option value="">Load a template...</option>';
+            
+            templates.forEach((template, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = escapeHtml(template.name);
+                elements.templateSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Failed to load templates:', error);
+        }
     }
+
+    function applyTemplate(settings) {
+        const pageRange = document.getElementById('pageRange');
+        const extractMode = document.getElementById('extractMode');
+        const outputFormat = document.getElementById('outputFormat');
+        const mergeTables = document.getElementById('mergeTables');
+        const includeHeaders = document.getElementById('includeHeaders');
+        const cleanData = document.getElementById('cleanData');
+        
+        if (pageRange) pageRange.value = settings.page_range || 'all';
+        if (extractMode) extractMode.value = settings.extract_mode || 'tables';
+        if (outputFormat) outputFormat.value = settings.output_format || 'xlsx';
+        if (mergeTables) mergeTables.checked = settings.merge_tables || false;
+        if (includeHeaders) includeHeaders.checked = settings.include_headers !== false;
+        if (cleanData) cleanData.checked = settings.clean_data !== false;
+    }
+
+    function saveTemplate(name, settings) {
+        try {
+            const templatesJson = localStorage.getItem(CONFIG.TEMPLATES_KEY) || '[]';
+            const templates = JSON.parse(templatesJson);
+            
+            // Check limits
+            if (templates.length >= CONFIG.MAX_TEMPLATES) {
+                showToast('Maximum number of templates reached. Please delete some first.', 'error');
+                return false;
+            }
+            
+            const templateData = JSON.stringify({ name, settings });
+            if (templateData.length > CONFIG.MAX_TEMPLATE_SIZE) {
+                showToast('Template is too large to save', 'error');
+                return false;
+            }
+            
+            templates.push({ name, settings });
+            localStorage.setItem(CONFIG.TEMPLATES_KEY, JSON.stringify(templates));
+            return true;
+        } catch (error) {
+            console.error('Failed to save template:', error);
+            showToast('Failed to save template', 'error');
+            return false;
+        }
+    }
+
+    // ========================================================================
+    // PREVIEW MODAL
+    // ========================================================================
     
-    historyModal.style.display = 'flex';
-    historyModal.classList.add('active');
-}
-
-function downloadHistoryFile(filename) {
-    window.location.href = `/download/${filename}`;
-}
-
-document.getElementById('closeHistoryModal').addEventListener('click', function() {
-    historyModal.style.display = 'none';
-    historyModal.classList.remove('active');
-});
-
-// Close modals on background click
-window.addEventListener('click', function(e) {
-    if (e.target === previewModal) {
-        previewModal.style.display = 'none';
-        previewModal.classList.remove('active');
-    }
-    if (e.target === historyModal) {
-        historyModal.style.display = 'none';
-        historyModal.classList.remove('active');
-    }
-    if (e.target === templateModal) {
-        templateModal.style.display = 'none';
-        templateModal.classList.remove('active');
-    }
-    if (e.target === loginModal) {
-        loginModal.style.display = 'none';
-        loginModal.classList.remove('active');
-    }
-    if (e.target === outOfCreditsModal) {
-        outOfCreditsModal.style.display = 'none';
-        outOfCreditsModal.classList.remove('active');
-    }
-    if (e.target === referralModal) {
-        referralModal.style.display = 'none';
-        referralModal.classList.remove('active');
-    }
-});
-
-// ============================================================================
-// AUTHENTICATION & CREDITS SYSTEM
-// ============================================================================
-
-// Check user status on page load
-async function checkUserStatus() {
-    try {
-        const response = await fetch('/api/user-status');
-        const data = await response.json();
+    async function showPreviewData() {
+        if (!state.currentTaskId) return;
         
-        if (data.logged_in) {
-            currentUser = data;
-            userReferralCode = data.referral_code;
-            showLoggedInState(data);
-            await updateCreditsDisplay();
-        } else {
-            showLoggedOutState();
-        }
-    } catch (error) {
-        console.error('Status check error:', error);
-        showLoggedOutState();
-    }
-}
-
-function showLoggedInState(userData) {
-    loginBtn.style.display = 'none';
-    creditsBadge.style.display = 'flex';
-    userMenu.style.display = 'block';
-    userEmail.textContent = userData.email;
-    creditsCount.textContent = userData.available_credits || 0;
-}
-
-function showLoggedOutState() {
-    loginBtn.style.display = 'inline-flex';
-    creditsBadge.style.display = 'none';
-    userMenu.style.display = 'none';
-}
-
-async function updateCreditsDisplay() {
-    try {
-        const response = await fetch('/api/credits');
-        if (response.ok) {
+        try {
+            const response = await fetch(`/preview-data/${state.currentTaskId}`);
+            if (!response.ok) {
+                throw new Error('Failed to load preview data');
+            }
+            
             const data = await response.json();
-            creditsCount.textContent = data.available;
-            currentUser = data;
+            displayPreviewModal(data);
+        } catch (error) {
+            showToast('Unable to load preview: ' + error.message, 'error');
         }
-    } catch (error) {
-        console.error('Credits update error:', error);
     }
-}
 
-async function showReferralModal() {
-    try {
-        const response = await fetch('/api/credits');
-        const creditsData = await response.json();
+    function displayPreviewModal(data) {
+        const previewContent = document.getElementById('previewContent');
+        if (!previewContent) return;
         
-        const statsResponse = await fetch('/api/referral-stats');
-        const statsData = await statsResponse.json();
+        const infoDiv = previewContent.querySelector('.preview-info');
+        const tableWrapper = previewContent.querySelector('.preview-table-wrapper');
         
-        document.getElementById('availableCredits').textContent = creditsData.available;
-        document.getElementById('totalReferrals').textContent = statsData.total_referrals;
-        document.getElementById('creditsEarned').textContent = creditsData.total_earned;
+        if (data.columns && data.rows) {
+            // Table data preview
+            if (infoDiv) {
+                infoDiv.innerHTML = `<p><strong>Showing first 50 rows</strong> of ${data.total_rows} total rows</p>`;
+            }
+            
+            let tableHTML = '<table class="preview-table"><thead><tr>';
+            data.columns.forEach(col => {
+                tableHTML += `<th>${escapeHtml(String(col))}</th>`;
+            });
+            tableHTML += '</tr></thead><tbody>';
+            
+            data.rows.forEach(row => {
+                tableHTML += '<tr>';
+                row.forEach(cell => {
+                    tableHTML += `<td>${escapeHtml(String(cell || ''))}</td>`;
+                });
+                tableHTML += '</tr>';
+            });
+            tableHTML += '</tbody></table>';
+            
+            if (tableWrapper) {
+                tableWrapper.innerHTML = tableHTML;
+            }
+        } else if (data.text_preview) {
+            // Text data preview
+            if (infoDiv) {
+                infoDiv.innerHTML = '<p><strong>Text Preview</strong> (first 5 pages)</p>';
+            }
+            let textHTML = '<div class="text-preview">';
+            data.text_preview.forEach(item => {
+                const pageNum = escapeHtml(String(item.Page));
+                const text = escapeHtml(String(item.Text).substring(0, 500));
+                textHTML += `<div class="text-page"><strong>Page ${pageNum}:</strong><pre>${text}...</pre></div>`;
+            });
+            textHTML += '</div>';
+            if (tableWrapper) {
+                tableWrapper.innerHTML = textHTML;
+            }
+        }
         
-        const referralLink = `${window.location.origin}/?ref=${creditsData.referral_code}`;
-        document.getElementById('dashboardReferralLink').value = referralLink;
+        if (elements.previewModal) {
+            elements.previewModal.style.display = 'flex';
+            elements.previewModal.classList.add('active');
+        }
+    }
+
+    // ========================================================================
+    // HISTORY MODAL
+    // ========================================================================
+    
+    async function showHistoryModal() {
+        try {
+            const response = await fetch('/history');
+            if (!response.ok) {
+                throw new Error('Failed to load history');
+            }
+            
+            const data = await response.json();
+            displayHistoryModal(data.history);
+        } catch (error) {
+            showToast('Unable to load history: ' + error.message, 'error');
+        }
+    }
+
+    function displayHistoryModal(history) {
+        const historyList = document.querySelector('#historyContent .history-list');
+        if (!historyList) return;
         
-        // Display referral list
-        const referralList = document.getElementById('referralList');
-        if (statsData.referrals && statsData.referrals.length > 0) {
-            let html = '<div class="referral-items">';
-            statsData.referrals.forEach(ref => {
-                const date = new Date(ref.signup_date).toLocaleDateString();
-                html += `
-                    <div class="referral-item">
-                        <i class="fas fa-user-check"></i>
-                        <span>${ref.email}</span>
-                        <span class="referral-date">${date}</span>
-                        ${ref.credited ? '<span class="credit-badge">+10 credits</span>' : ''}
+        if (history.length === 0) {
+            historyList.innerHTML = '<p class="empty-message">No conversion history yet</p>';
+        } else {
+            let html = '<div class="history-items">';
+            history.reverse().forEach(item => {
+                const date = new Date(item.timestamp);
+                const statusClass = item.status === 'completed' ? 'success' : 
+                                  item.status === 'error' ? 'error' : 'pending';
+                const statusIcon = item.status === 'completed' ? 'check-circle' : 
+                                 item.status === 'error' ? 'exclamation-circle' : 'spinner';
+                const filename = escapeHtml(item.filename);
+                const status = escapeHtml(item.status);
+                
+                html += `<div class="history-item ${statusClass}">
+                    <div class="history-header">
+                        <span class="history-filename"><i class="fas fa-file-pdf"></i> ${filename}</span>
+                        <span class="history-status"><i class="fas fa-${statusIcon}"></i> ${status}</span>
                     </div>
-                `;
+                    <div class="history-details">
+                        <small>${date.toLocaleString()}</small>
+                        ${item.can_download && item.output_file ? 
+                          `<button class="history-download-btn" data-filename="${escapeHtml(item.output_file)}">
+                            <i class="fas fa-download"></i> Download
+                          </button>` : ''}
+                    </div>
+                </div>`;
             });
             html += '</div>';
-            referralList.innerHTML = html;
-        } else {
-            referralList.innerHTML = '<p class="no-referrals">No referrals yet. Start sharing!</p>';
+            historyList.innerHTML = html;
+            
+            // Add event listeners to download buttons
+            historyList.querySelectorAll('.history-download-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const filename = this.getAttribute('data-filename');
+                    if (filename) {
+                        window.location.href = `/download/${filename}`;
+                    }
+                });
+            });
         }
         
-        referralModal.style.display = 'flex';
-        referralModal.classList.add('active');
-    } catch (error) {
-        console.error('Referral modal error:', error);
+        if (elements.historyModal) {
+            elements.historyModal.style.display = 'flex';
+            elements.historyModal.classList.add('active');
+        }
     }
-}
 
-// Alias for backward compatibility
-const showReferralDashboard = showReferralModal;
-
-async function showProfileModal() {
-    console.log('showProfileModal called');
-    try {
-        console.log('Fetching profile data...');
-        const response = await fetch('/api/profile');
-        console.log('Profile response:', response.status);
-        const data = await response.json();
-        console.log('Profile data:', data);
-        
-        // Account information
-        document.getElementById('profileEmail').textContent = data.email;
-        document.getElementById('profileReferralCode').textContent = data.referral_code;
-        
-        // Format join date
-        const joinDate = new Date(data.created_at);
-        document.getElementById('profileJoinDate').textContent = joinDate.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-        
-        // Usage statistics
-        document.getElementById('profileTotalCredits').textContent = data.total_credits;
-        document.getElementById('profileUsedCredits').textContent = data.used_credits;
-        document.getElementById('profileAvailableCredits').textContent = data.available_credits;
-        document.getElementById('profileTotalConversions').textContent = data.total_conversions;
-        
-        // Referral performance
-        document.getElementById('profileTotalReferrals').textContent = data.total_referrals;
-        document.getElementById('profileReferralCredits').textContent = data.referral_credits;
-        document.getElementById('profileReferredBy').textContent = data.referred_by || 'None';
-        
-        // Show modal
-        const profileModal = document.getElementById('profileModal');
-        console.log('Profile modal element:', profileModal);
-        profileModal.style.display = 'flex';
-        profileModal.classList.add('active');
-        console.log('Profile modal should be visible now');
-    } catch (error) {
-        console.error('Profile modal error:', error);
-        showToast('Failed to load profile');
-    }
-}
-
-
-function showOutOfCreditsModal() {
-    const referralLink = `${window.location.origin}/?ref=${userReferralCode}`;
-    document.getElementById('referralLinkInput').value = referralLink;
+    // ========================================================================
+    // AUTHENTICATION
+    // ========================================================================
     
-    outOfCreditsModal.style.display = 'flex';
-    outOfCreditsModal.classList.add('active');
-}
-
-// Copy referral link handlers
-document.getElementById('copyReferralLink').addEventListener('click', function() {
-    const input = document.getElementById('referralLinkInput');
-    input.select();
-    document.execCommand('copy');
-    showToast('Referral link copied!');
-});
-
-document.getElementById('copyDashboardLink').addEventListener('click', function() {
-    const input = document.getElementById('dashboardReferralLink');
-    input.select();
-    document.execCommand('copy');
-    showToast('Referral link copied!');
-});
-
-// Social share handlers
-function shareOnTwitter(referralCode) {
-    const text = `I'm using JDT PDF Converter - it's amazing! Get 3 free conversions with my link:`;
-    const url = `${window.location.origin}/?ref=${referralCode}`;
-    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
-}
-
-function shareOnWhatsApp(referralCode) {
-    const text = `Check out JDT PDF Converter! Get 3 free conversions: ${window.location.origin}/?ref=${referralCode}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-}
-
-function shareOnLinkedIn(referralCode) {
-    const url = `${window.location.origin}/?ref=${referralCode}`;
-    window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
-}
-
-document.getElementById('shareTwitter').addEventListener('click', () => shareOnTwitter(userReferralCode));
-document.getElementById('shareWhatsApp').addEventListener('click', () => shareOnWhatsApp(userReferralCode));
-document.getElementById('dashboardShareTwitter').addEventListener('click', () => shareOnTwitter(currentUser.referral_code));
-document.getElementById('dashboardShareWhatsApp').addEventListener('click', () => shareOnWhatsApp(currentUser.referral_code));
-document.getElementById('dashboardShareLinkedIn').addEventListener('click', () => shareOnLinkedIn(currentUser.referral_code));
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
-
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
-    initializeDarkMode();
-    loadTemplates();
-    checkUserStatus();
-    
-    // Setup all authentication event listeners
-    setupAuthEventListeners();
-    
-    // Check for referral code in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const refCode = urlParams.get('ref');
-    if (refCode && !currentUser) {
-        // Auto-show login modal with referral code prefilled
-        setTimeout(() => {
-            const referralInput = document.getElementById('referralCodeInput');
-            const modal = document.getElementById('loginModal');
-            if (referralInput && modal) {
-                referralInput.value = refCode.toUpperCase();
-                modal.style.display = 'flex';
-                modal.classList.add('active');
+    async function checkUserStatus() {
+        // Prevent race conditions
+        if (state.isCheckingStatus) return;
+        state.isCheckingStatus = true;
+        
+        try {
+            const response = await fetch('/api/user-status');
+            const data = await response.json();
+            
+            if (data.logged_in) {
+                state.currentUser = data;
+                state.userReferralCode = data.referral_code;
+                showLoggedInState(data);
+                await updateCreditsDisplay();
+            } else {
+                showLoggedOutState();
             }
-        }, 1000);
+        } catch (error) {
+            console.error('Status check error:', error);
+            showLoggedOutState();
+        } finally {
+            state.isCheckingStatus = false;
+        }
     }
-});
 
-// Setup authentication event listeners
-function setupAuthEventListeners() {
-    const loginBtn = document.getElementById('loginBtn');
-    const loginModal = document.getElementById('loginModal');
-    const closeLoginModal = document.getElementById('closeLoginModal');
-    const userMenuBtn = document.getElementById('userMenuBtn');
-    const userDropdown = document.getElementById('userDropdown');
-    const logoutBtn = document.getElementById('logoutBtn');
-    const referralBtn = document.getElementById('referralBtn');
-    const dashboardBtn = document.getElementById('dashboardBtn');
-    const closeCreditsModal = document.getElementById('closeCreditsModal');
-    const closeReferralModal = document.getElementById('closeReferralModal');
-    const outOfCreditsModal = document.getElementById('outOfCreditsModal');
-    const referralModal = document.getElementById('referralModal');
-    
-    // Login button handler
-    if (loginBtn) {
-        loginBtn.addEventListener('click', function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const refCode = urlParams.get('ref');
-            if (refCode) {
-                document.getElementById('loginReferralCode').value = refCode.toUpperCase();
+    function showLoggedInState(userData) {
+        if (elements.loginBtn) elements.loginBtn.style.display = 'none';
+        if (elements.creditsBadge) elements.creditsBadge.style.display = 'flex';
+        if (elements.userMenu) elements.userMenu.style.display = 'block';
+        if (elements.userEmail) elements.userEmail.textContent = userData.email;
+        if (elements.creditsCount) elements.creditsCount.textContent = userData.available_credits || 0;
+    }
+
+    function showLoggedOutState() {
+        if (elements.loginBtn) elements.loginBtn.style.display = 'inline-flex';
+        if (elements.creditsBadge) elements.creditsBadge.style.display = 'none';
+        if (elements.userMenu) elements.userMenu.style.display = 'none';
+    }
+
+    async function updateCreditsDisplay() {
+        try {
+            const response = await fetch('/api/credits');
+            if (response.ok) {
+                const data = await response.json();
+                if (elements.creditsCount) {
+                    elements.creditsCount.textContent = data.available;
+                }
+                state.currentUser = data;
             }
-            loginModal.style.display = 'flex';
-            loginModal.classList.add('active');
-            // Reset to login mode
-            setAuthMode('login');
-        });
+        } catch (error) {
+            console.error('Credits update error:', error);
+        }
     }
-    
-    // Close login modal
-    if (closeLoginModal) {
-        closeLoginModal.addEventListener('click', function() {
-            loginModal.style.display = 'none';
-            loginModal.classList.remove('active');
-            document.getElementById('authError').style.display = 'none';
-        });
-    }
-    
-    // Toggle between login and signup
-    const toggleAuthMode = document.getElementById('toggleAuthMode');
-    let currentAuthMode = 'login';
-    
+
     function setAuthMode(mode) {
-        currentAuthMode = mode;
+        state.currentAuthMode = mode;
         const submitBtn = document.getElementById('loginSubmitBtn');
         const modalHeader = document.querySelector('#loginModal .modal-header h2');
         const passwordConfirmGroup = document.getElementById('signupPasswordConfirmGroup');
         const referralCodeGroup = document.getElementById('referralCodeGroup');
+        const toggleAuthMode = document.getElementById('toggleAuthMode');
+        
+        if (!submitBtn || !modalHeader) return;
         
         if (mode === 'signup') {
             submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Sign Up';
             modalHeader.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
-            toggleAuthMode.textContent = 'Already have an account? Login';
-            passwordConfirmGroup.style.display = 'block';
-            referralCodeGroup.style.display = 'block';
+            if (toggleAuthMode) toggleAuthMode.textContent = 'Already have an account? Login';
+            if (passwordConfirmGroup) passwordConfirmGroup.style.display = 'block';
+            if (referralCodeGroup) referralCodeGroup.style.display = 'block';
         } else {
             submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
             modalHeader.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login to Continue';
-            toggleAuthMode.textContent = 'Don\'t have an account? Sign up';
-            passwordConfirmGroup.style.display = 'none';
-            referralCodeGroup.style.display = 'none';
+            if (toggleAuthMode) toggleAuthMode.textContent = 'Don\'t have an account? Sign up';
+            if (passwordConfirmGroup) passwordConfirmGroup.style.display = 'none';
+            if (referralCodeGroup) referralCodeGroup.style.display = 'none';
         }
-        document.getElementById('authError').style.display = 'none';
+        
+        const authError = document.getElementById('authError');
+        if (authError) authError.style.display = 'none';
     }
-    
-    if (toggleAuthMode) {
-        toggleAuthMode.addEventListener('click', function(e) {
-            e.preventDefault();
-            setAuthMode(currentAuthMode === 'login' ? 'signup' : 'login');
-        });
-    }
-    
-    // Handle login/signup form submission
-    const authForm = document.getElementById('loginForm');
-    if (authForm) {
-        authForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const email = document.getElementById('loginEmail').value.trim();
-            const password = document.getElementById('loginPassword').value;
-            const errorDiv = document.getElementById('authError');
-            const submitBtn = document.getElementById('loginSubmitBtn');
-            
-            // Validation
-            if (!email || !password) {
+
+    async function handleAuthSubmit(e) {
+        e.preventDefault();
+        
+        const email = document.getElementById('loginEmail')?.value?.trim();
+        const password = document.getElementById('loginPassword')?.value;
+        const errorDiv = document.getElementById('authError');
+        const submitBtn = document.getElementById('loginSubmitBtn');
+        
+        // Validation
+        if (!email || !password) {
+            if (errorDiv) {
                 errorDiv.textContent = 'Please enter email and password';
                 errorDiv.style.display = 'block';
-                return;
             }
-            
-            if (currentAuthMode === 'signup') {
-                const passwordConfirm = document.getElementById('signupPasswordConfirm').value;
-                if (password !== passwordConfirm) {
-                    errorDiv.textContent = 'Passwords do not match';
-                    errorDiv.style.display = 'block';
-                    return;
-                }
-                if (password.length < 6) {
-                    errorDiv.textContent = 'Password must be at least 6 characters';
-                    errorDiv.style.display = 'block';
-                    return;
-                }
-            }
-            
-            // Disable button during request
-            submitBtn.disabled = true;
-            submitBtn.textContent = currentAuthMode === 'signup' ? 'Creating account...' : 'Logging in...';
-            errorDiv.style.display = 'none';
-            
-            try {
-                const endpoint = currentAuthMode === 'signup' ? '/auth/signup' : '/auth/login';
-                const payload = {
-                    email: email,
-                    password: password
-                };
-                
-                if (currentAuthMode === 'signup') {
-                    const referralCode = document.getElementById('loginReferralCode').value.trim().toUpperCase();
-                    if (referralCode) {
-                        payload.referral_code = referralCode;
-                    }
-                }
-                
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(payload)
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok && data.success) {
-                    // Success - reload page
-                    window.location.reload();
-                } else {
-                    // Show error
-                    errorDiv.textContent = data.error || 'Authentication failed';
-                    errorDiv.style.display = 'block';
-                }
-            } catch (error) {
-                console.error('Auth error:', error);
-                errorDiv.textContent = 'Network error. Please try again.';
-                errorDiv.style.display = 'block';
-            } finally {
-                // Re-enable button
-                submitBtn.disabled = false;
-                setAuthMode(currentAuthMode); // Reset button text
-            }
-        });
-    }
-    
-    // User menu dropdown toggle
-    if (userMenuBtn && userDropdown) {
-        userMenuBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            userDropdown.classList.toggle('show');
-        });
-        
-        document.addEventListener('click', function() {
-            userDropdown.classList.remove('show');
-        });
-    }
-    
-    // Logout button
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async function() {
-            try {
-                await fetch('/auth/logout', {method: 'POST'});
-                window.location.reload();
-            } catch (error) {
-                console.error('Logout error:', error);
-            }
-        });
-    }
-    
-    // Referral button
-    if (referralBtn) {
-        referralBtn.addEventListener('click', function() {
-            showReferralDashboard();
-        });
-    }
-    
-    // Profile button
-    const profileBtn = document.getElementById('profileBtn');
-    if (profileBtn) {
-        profileBtn.addEventListener('click', function() {
-            console.log('Profile button clicked');
-            const userDropdown = document.getElementById('userDropdown');
-            if (userDropdown) userDropdown.classList.remove('show');
-            showProfileModal();
-        });
-    } else {
-        console.log('Profile button not found');
-    }
-    
-    // Dashboard button
-    if (dashboardBtn) {
-        dashboardBtn.addEventListener('click', function() {
-            const userDropdown = document.getElementById('userDropdown');
-            if (userDropdown) userDropdown.classList.remove('show');
-            showReferralDashboard();
-        });
-    }
-    
-    // Close modals
-    if (closeCreditsModal && outOfCreditsModal) {
-        closeCreditsModal.addEventListener('click', function() {
-            outOfCreditsModal.style.display = 'none';
-            outOfCreditsModal.classList.remove('active');
-        });
-    }
-    
-    if (closeReferralModal && referralModal) {
-        closeReferralModal.addEventListener('click', function() {
-            referralModal.style.display = 'none';
-            referralModal.classList.remove('active');
-        });
-    }
-    
-    const closeProfileModal = document.getElementById('closeProfileModal');
-    const profileModal = document.getElementById('profileModal');
-    if (closeProfileModal && profileModal) {
-        closeProfileModal.addEventListener('click', function() {
-            profileModal.style.display = 'none';
-            profileModal.classList.remove('active');
-        });
-    }
-    
-    // Click outside modal to close
-    window.addEventListener('click', function(e) {
-        if (e.target === referralModal) {
-            referralModal.style.display = 'none';
-            referralModal.classList.remove('active');
-        }
-        if (e.target === profileModal) {
-            profileModal.style.display = 'none';
-            profileModal.classList.remove('active');
-        }
-        if (e.target === outOfCreditsModal) {
-            outOfCreditsModal.style.display = 'none';
-            outOfCreditsModal.classList.remove('active');
-        }
-    });
-    
-    // View referrals from profile
-    const viewReferralsBtn = document.getElementById('viewReferralsBtn');
-    if (viewReferralsBtn) {
-        viewReferralsBtn.addEventListener('click', function() {
-            profileModal.style.display = 'none';
-            showReferralDashboard();
-        });
-    }
-    
-    // Copy profile referral code
-    const copyProfileReferralCode = document.getElementById('copyProfileReferralCode');
-    if (copyProfileReferralCode) {
-        copyProfileReferralCode.addEventListener('click', function() {
-            const codeElement = document.getElementById('profileReferralCode');
-            if (codeElement) {
-                navigator.clipboard.writeText(codeElement.textContent).then(() => {
-                    copyProfileReferralCode.innerHTML = '<i class="fas fa-check"></i>';
-                    setTimeout(() => {
-                        copyProfileReferralCode.innerHTML = '<i class="fas fa-copy"></i>';
-                    }, 2000);
-                });
-            }
-        });
-    }
-}
-// Copy UPI ID function
-function copyUPI() {
-    const upiId = 'jerinad123@pingpay';
-    navigator.clipboard.writeText(upiId).then(() => {
-        const btn = event.target.closest('button');
-        const icon = btn.querySelector('i');
-        icon.className = 'fas fa-check';
-        btn.style.color = '#4caf50';
-        setTimeout(() => {
-            icon.className = 'fas fa-copy';
-            btn.style.color = '';
-        }, 2000);
-    }).catch(err => {
-        alert('Failed to copy UPI ID');
-    });
-}
-
-// Load credit history
-async function loadCreditHistory() {
-    try {
-        const response = await fetch('/api/credit-history');
-        if (!response.ok) throw new Error('Failed to load credit history');
-        
-        const data = await response.json();
-        const historyList = document.getElementById('creditHistoryList');
-        
-        if (data.history.length === 0) {
-            historyList.innerHTML = `
-                <div class="no-history">
-                    <i class="fas fa-inbox"></i>
-                    <p>No credit history yet</p>
-                </div>
-            `;
             return;
         }
         
-        historyList.innerHTML = '';
-        data.history.forEach(item => {
-            const isPositive = item.amount > 0;
-            const typeClass = isPositive ? 'credit-added' : 'credit-used';
-            const amountClass = isPositive ? 'positive' : 'negative';
-            const icon = getTransactionIcon(item.type);
-            const date = new Date(item.timestamp).toLocaleString();
+        if (!isValidEmail(email)) {
+            if (errorDiv) {
+                errorDiv.textContent = 'Please enter a valid email address';
+                errorDiv.style.display = 'block';
+            }
+            return;
+        }
+        
+        if (state.currentAuthMode === 'signup') {
+            const passwordConfirm = document.getElementById('signupPasswordConfirm')?.value;
+            if (password !== passwordConfirm) {
+                if (errorDiv) {
+                    errorDiv.textContent = 'Passwords do not match';
+                    errorDiv.style.display = 'block';
+                }
+                return;
+            }
+            if (password.length < 6) {
+                if (errorDiv) {
+                    errorDiv.textContent = 'Password must be at least 6 characters';
+                    errorDiv.style.display = 'block';
+                }
+                return;
+            }
+        }
+        
+        // Disable button during request
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = state.currentAuthMode === 'signup' ? 'Creating account...' : 'Logging in...';
+        }
+        if (errorDiv) errorDiv.style.display = 'none';
+        
+        try {
+            const endpoint = state.currentAuthMode === 'signup' ? '/auth/signup' : '/auth/login';
+            const payload = { email, password };
             
-            const historyItem = document.createElement('div');
-            historyItem.className = 'credit-history-item';
-            historyItem.innerHTML = `
-                <div class="history-info">
-                    <div class="history-type"><i class="${icon}"></i> ${item.type}</div>
-                    <div class="history-description">${item.description}</div>
-                    <div class="history-date">${date}</div>
-                </div>
-                <div class="history-amount">
-                    <div class="amount-value ${amountClass}">${isPositive ? '+' : ''}${item.amount}</div>
-                    <div class="history-balance">Balance: ${item.balance_after}</div>
-                </div>
-            `;
-            historyList.appendChild(historyItem);
-        });
-    } catch (error) {
-        console.error('Error loading credit history:', error);
-        document.getElementById('creditHistoryList').innerHTML = `
-            <div class="loading-message">Failed to load history</div>
-        `;
+            if (state.currentAuthMode === 'signup') {
+                const referralCode = document.getElementById('loginReferralCode')?.value?.trim()?.toUpperCase();
+                if (referralCode) {
+                    payload.referral_code = referralCode;
+                }
+            }
+            
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                window.location.reload();
+            } else {
+                if (errorDiv) {
+                    errorDiv.textContent = data.error || 'Authentication failed';
+                    errorDiv.style.display = 'block';
+                }
+            }
+        } catch (error) {
+            console.error('Auth error:', error);
+            if (errorDiv) {
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+            }
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                setAuthMode(state.currentAuthMode);
+            }
+        }
     }
-}
 
-function getTransactionIcon(type) {
-    const icons = {
-        'signup': 'fas fa-user-plus',
-        'referral': 'fas fa-gift',
-        'purchase': 'fas fa-shopping-cart',
-        'daily': 'fas fa-calendar-day',
-        'conversion': 'fas fa-file-pdf'
-    };
-    return icons[type] || 'fas fa-coin';
-}
+    async function handleLogout() {
+        try {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.reload();
+        } catch (error) {
+            console.error('Logout error:', error);
+            showToast('Logout failed', 'error');
+        }
+    }
 
-// Load credit history when profile modal opens
-document.getElementById('profileBtn')?.addEventListener('click', () => {
-    loadCreditHistory();
-});
+    // ========================================================================
+    // REFERRAL & PROFILE
+    // ========================================================================
+    
+    function showOutOfCreditsModal() {
+        if (!state.userReferralCode) return;
+        
+        const referralLink = `${window.location.origin}/?ref=${state.userReferralCode}`;
+        const input = document.getElementById('referralLinkInput');
+        if (input) input.value = referralLink;
+        
+        if (elements.outOfCreditsModal) {
+            elements.outOfCreditsModal.style.display = 'flex';
+            elements.outOfCreditsModal.classList.add('active');
+        }
+    }
 
+    async function showReferralModal() {
+        try {
+            const [creditsResponse, statsResponse] = await Promise.all([
+                fetch('/api/credits'),
+                fetch('/api/referral-stats')
+            ]);
+            
+            const creditsData = await creditsResponse.json();
+            const statsData = await statsResponse.json();
+            
+            const availableCredits = document.getElementById('availableCredits');
+            const totalReferrals = document.getElementById('totalReferrals');
+            const creditsEarned = document.getElementById('creditsEarned');
+            const referralLink = document.getElementById('dashboardReferralLink');
+            
+            if (availableCredits) availableCredits.textContent = creditsData.available;
+            if (totalReferrals) totalReferrals.textContent = statsData.total_referrals;
+            if (creditsEarned) creditsEarned.textContent = creditsData.total_earned;
+            if (referralLink) {
+                referralLink.value = `${window.location.origin}/?ref=${creditsData.referral_code}`;
+            }
+            
+            // Display referral list
+            const referralList = document.getElementById('referralList');
+            if (referralList) {
+                if (statsData.referrals && statsData.referrals.length > 0) {
+                    let html = '<div class="referral-items">';
+                    statsData.referrals.forEach(ref => {
+                        const date = new Date(ref.signup_date).toLocaleDateString();
+                        const email = escapeHtml(ref.email);
+                        html += `
+                            <div class="referral-item">
+                                <i class="fas fa-user-check"></i>
+                                <span>${email}</span>
+                                <span class="referral-date">${date}</span>
+                                ${ref.credited ? '<span class="credit-badge">+10 credits</span>' : ''}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    referralList.innerHTML = html;
+                } else {
+                    referralList.innerHTML = '<p class="no-referrals">No referrals yet. Start sharing!</p>';
+                }
+            }
+            
+            if (elements.referralModal) {
+                elements.referralModal.style.display = 'flex';
+                elements.referralModal.classList.add('active');
+            }
+        } catch (error) {
+            console.error('Referral modal error:', error);
+            showToast('Failed to load referral data', 'error');
+        }
+    }
+
+    async function showProfileModal() {
+        try {
+            const response = await fetch('/api/profile');
+            if (!response.ok) throw new Error('Failed to load profile');
+            
+            const data = await response.json();
+            
+            // Account information
+            const profileEmail = document.getElementById('profileEmail');
+            const profileReferralCode = document.getElementById('profileReferralCode');
+            const profileJoinDate = document.getElementById('profileJoinDate');
+            
+            if (profileEmail) profileEmail.textContent = data.email;
+            if (profileReferralCode) profileReferralCode.textContent = data.referral_code;
+            
+            if (profileJoinDate && data.created_at) {
+                const joinDate = new Date(data.created_at);
+                profileJoinDate.textContent = joinDate.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+            
+            // Usage statistics
+            const profileTotalCredits = document.getElementById('profileTotalCredits');
+            const profileUsedCredits = document.getElementById('profileUsedCredits');
+            const profileAvailableCredits = document.getElementById('profileAvailableCredits');
+            const profileTotalConversions = document.getElementById('profileTotalConversions');
+            
+            if (profileTotalCredits) profileTotalCredits.textContent = data.total_credits;
+            if (profileUsedCredits) profileUsedCredits.textContent = data.used_credits;
+            if (profileAvailableCredits) profileAvailableCredits.textContent = data.available_credits;
+            if (profileTotalConversions) profileTotalConversions.textContent = data.total_conversions;
+            
+            // Referral performance
+            const profileTotalReferrals = document.getElementById('profileTotalReferrals');
+            const profileReferralCredits = document.getElementById('profileReferralCredits');
+            const profileReferredBy = document.getElementById('profileReferredBy');
+            
+            if (profileTotalReferrals) profileTotalReferrals.textContent = data.total_referrals;
+            if (profileReferralCredits) profileReferralCredits.textContent = data.referral_credits;
+            if (profileReferredBy) profileReferredBy.textContent = data.referred_by || 'None';
+            
+            // Load credit history
+            await loadCreditHistory();
+            
+            // Show modal
+            if (elements.profileModal) {
+                elements.profileModal.style.display = 'flex';
+                elements.profileModal.classList.add('active');
+            }
+        } catch (error) {
+            console.error('Profile modal error:', error);
+            showToast('Failed to load profile', 'error');
+        }
+    }
+
+    async function loadCreditHistory() {
+        try {
+            const response = await fetch('/api/credit-history');
+            if (!response.ok) throw new Error('Failed to load credit history');
+            
+            const data = await response.json();
+            const historyList = document.getElementById('creditHistoryList');
+            
+            if (!historyList) return;
+            
+            if (data.history.length === 0) {
+                historyList.innerHTML = `
+                    <div class="no-history">
+                        <i class="fas fa-inbox"></i>
+                        <p>No credit history yet</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            historyList.innerHTML = '';
+            data.history.forEach(item => {
+                const isPositive = item.amount > 0;
+                const amountClass = isPositive ? 'positive' : 'negative';
+                const icon = getTransactionIcon(item.type);
+                const date = new Date(item.timestamp).toLocaleString();
+                
+                const historyItem = document.createElement('div');
+                historyItem.className = 'credit-history-item';
+                historyItem.innerHTML = `
+                    <div class="history-info">
+                        <div class="history-type"><i class="${icon}"></i> ${escapeHtml(item.type)}</div>
+                        <div class="history-description">${escapeHtml(item.description)}</div>
+                        <div class="history-date">${date}</div>
+                    </div>
+                    <div class="history-amount">
+                        <div class="amount-value ${amountClass}">${isPositive ? '+' : ''}${item.amount}</div>
+                        <div class="history-balance">Balance: ${item.balance_after}</div>
+                    </div>
+                `;
+                historyList.appendChild(historyItem);
+            });
+        } catch (error) {
+            console.error('Error loading credit history:', error);
+            const historyList = document.getElementById('creditHistoryList');
+            if (historyList) {
+                historyList.innerHTML = '<div class="loading-message">Failed to load history</div>';
+            }
+        }
+    }
+
+    // ========================================================================
+    // SOCIAL SHARING
+    // ========================================================================
+    
+    function shareOnTwitter(referralCode) {
+        const text = "I'm using JDT PDF Converter - it's amazing! Get free conversions with my link:";
+        const url = `${window.location.origin}/?ref=${referralCode}`;
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+    }
+
+    function shareOnWhatsApp(referralCode) {
+        const text = `Check out JDT PDF Converter! Get free conversions: ${window.location.origin}/?ref=${referralCode}`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    }
+
+    function shareOnLinkedIn(referralCode) {
+        const url = `${window.location.origin}/?ref=${referralCode}`;
+        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
+    }
+
+    // ========================================================================
+    // UPI COPY FUNCTION
+    // ========================================================================
+    
+    async function copyUPI() {
+        const success = await copyToClipboard(CONFIG.UPI_ID);
+        if (success) {
+            showToast('UPI ID copied to clipboard!');
+        } else {
+            showToast('Failed to copy UPI ID', 'error');
+        }
+    }
+
+    // ========================================================================
+    // MODAL MANAGEMENT
+    // ========================================================================
+    
+    function closeModal(modal) {
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('active');
+        }
+    }
+
+    function setupModalListeners() {
+        // Close buttons
+        const closeButtons = [
+            { id: 'closePreviewModal', modal: elements.previewModal },
+            { id: 'closeHistoryModal', modal: elements.historyModal },
+            { id: 'closeTemplateModal', modal: elements.templateModal },
+            { id: 'closeLoginModal', modal: elements.loginModal },
+            { id: 'closeCreditsModal', modal: elements.outOfCreditsModal },
+            { id: 'closeReferralModal', modal: elements.referralModal },
+            { id: 'closeProfileModal', modal: elements.profileModal }
+        ];
+        
+        closeButtons.forEach(({ id, modal }) => {
+            const btn = document.getElementById(id);
+            if (btn && modal) {
+                btn.addEventListener('click', () => closeModal(modal));
+            }
+        });
+        
+        // Click outside to close
+        window.addEventListener('click', function(e) {
+            const modals = [
+                elements.previewModal,
+                elements.historyModal,
+                elements.templateModal,
+                elements.loginModal,
+                elements.outOfCreditsModal,
+                elements.referralModal,
+                elements.profileModal
+            ];
+            
+            modals.forEach(modal => {
+                if (e.target === modal) {
+                    closeModal(modal);
+                }
+            });
+        });
+        
+        // Keyboard: Escape to close modals
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const modals = [
+                    elements.previewModal,
+                    elements.historyModal,
+                    elements.templateModal,
+                    elements.loginModal,
+                    elements.outOfCreditsModal,
+                    elements.referralModal,
+                    elements.profileModal
+                ];
+                
+                modals.forEach(modal => {
+                    if (modal && modal.classList.contains('active')) {
+                        closeModal(modal);
+                    }
+                });
+            }
+        });
+    }
+
+    // ========================================================================
+    // EVENT LISTENERS SETUP (Called once on initialization)
+    // ========================================================================
+    
+    function setupEventListeners() {
+        // File upload
+        if (elements.fileInput) {
+            elements.fileInput.addEventListener('change', (e) => {
+                handleFileSelect(e.target.files[0]);
+            });
+        }
+        
+        // Form submission
+        if (elements.uploadForm) {
+            elements.uploadForm.addEventListener('submit', handleFormSubmit);
+        }
+        
+        // Action buttons
+        if (elements.downloadBtn) {
+            elements.downloadBtn.addEventListener('click', () => {
+                if (state.downloadFilename) {
+                    window.location.href = `/download/${state.downloadFilename}`;
+                }
+            });
+        }
+        
+        if (elements.previewDataBtn) {
+            elements.previewDataBtn.addEventListener('click', showPreviewData);
+        }
+        
+        if (elements.convertAnotherBtn) {
+            elements.convertAnotherBtn.addEventListener('click', resetForm);
+        }
+        
+        if (elements.tryAgainBtn) {
+            elements.tryAgainBtn.addEventListener('click', resetForm);
+        }
+        
+        // Dark mode toggle
+        if (elements.darkModeToggle) {
+            elements.darkModeToggle.addEventListener('click', toggleDarkMode);
+        }
+        
+        // History button
+        if (elements.historyBtn) {
+            elements.historyBtn.addEventListener('click', showHistoryModal);
+        }
+        
+        // Template buttons
+        if (elements.templateSelect) {
+            elements.templateSelect.addEventListener('change', function() {
+                if (this.value === '') return;
+                
+                try {
+                    const templates = JSON.parse(localStorage.getItem(CONFIG.TEMPLATES_KEY) || '[]');
+                    const template = templates[parseInt(this.value)];
+                    if (template) {
+                        applyTemplate(template.settings);
+                        this.value = '';
+                    }
+                } catch (error) {
+                    console.error('Error loading template:', error);
+                }
+            });
+        }
+        
+        if (elements.saveTemplateBtn) {
+            elements.saveTemplateBtn.addEventListener('click', () => {
+                if (elements.templateModal) {
+                    elements.templateModal.style.display = 'flex';
+                    elements.templateModal.classList.add('active');
+                }
+                const templateNameInput = document.getElementById('templateName');
+                if (templateNameInput) {
+                    templateNameInput.value = '';
+                    templateNameInput.focus();
+                }
+            });
+        }
+        
+        const saveTemplateConfirm = document.getElementById('saveTemplateConfirm');
+        if (saveTemplateConfirm) {
+            saveTemplateConfirm.addEventListener('click', () => {
+                const nameInput = document.getElementById('templateName');
+                const name = sanitizeTemplateName(nameInput?.value || '');
+                
+                if (!name) {
+                    showToast('Please enter a template name', 'error');
+                    return;
+                }
+                
+                const settings = {
+                    page_range: document.getElementById('pageRange')?.value || 'all',
+                    extract_mode: document.getElementById('extractMode')?.value || 'tables',
+                    output_format: document.getElementById('outputFormat')?.value || 'xlsx',
+                    merge_tables: document.getElementById('mergeTables')?.checked || false,
+                    include_headers: document.getElementById('includeHeaders')?.checked !== false,
+                    clean_data: document.getElementById('cleanData')?.checked !== false
+                };
+                
+                if (saveTemplate(name, settings)) {
+                    loadTemplates();
+                    closeModal(elements.templateModal);
+                    showToast('Template saved!');
+                }
+            });
+        }
+        
+        const cancelTemplateSave = document.getElementById('cancelTemplateSave');
+        if (cancelTemplateSave) {
+            cancelTemplateSave.addEventListener('click', () => {
+                closeModal(elements.templateModal);
+            });
+        }
+        
+        // Auth event listeners
+        setupAuthEventListeners();
+        
+        // Modal listeners
+        setupModalListeners();
+        
+        // Copy buttons
+        const copyReferralLink = document.getElementById('copyReferralLink');
+        if (copyReferralLink) {
+            copyReferralLink.addEventListener('click', async () => {
+                const input = document.getElementById('referralLinkInput');
+                if (input) {
+                    const success = await copyToClipboard(input.value);
+                    if (success) showToast('Referral link copied!');
+                }
+            });
+        }
+        
+        const copyDashboardLink = document.getElementById('copyDashboardLink');
+        if (copyDashboardLink) {
+            copyDashboardLink.addEventListener('click', async () => {
+                const input = document.getElementById('dashboardReferralLink');
+                if (input) {
+                    const success = await copyToClipboard(input.value);
+                    if (success) showToast('Referral link copied!');
+                }
+            });
+        }
+        
+        const copyProfileReferralCode = document.getElementById('copyProfileReferralCode');
+        if (copyProfileReferralCode) {
+            copyProfileReferralCode.addEventListener('click', async () => {
+                const codeElement = document.getElementById('profileReferralCode');
+                if (codeElement) {
+                    const success = await copyToClipboard(codeElement.textContent);
+                    if (success) {
+                        copyProfileReferralCode.innerHTML = '<i class="fas fa-check"></i>';
+                        setTimeout(() => {
+                            copyProfileReferralCode.innerHTML = '<i class="fas fa-copy"></i>';
+                        }, 2000);
+                    }
+                }
+            });
+        }
+        
+        // Social share buttons
+        const shareButtons = [
+            { id: 'shareTwitter', handler: () => shareOnTwitter(state.userReferralCode) },
+            { id: 'shareWhatsApp', handler: () => shareOnWhatsApp(state.userReferralCode) },
+            { id: 'dashboardShareTwitter', handler: () => shareOnTwitter(state.currentUser?.referral_code) },
+            { id: 'dashboardShareWhatsApp', handler: () => shareOnWhatsApp(state.currentUser?.referral_code) },
+            { id: 'dashboardShareLinkedIn', handler: () => shareOnLinkedIn(state.currentUser?.referral_code) }
+        ];
+        
+        shareButtons.forEach(({ id, handler }) => {
+            const btn = document.getElementById(id);
+            if (btn) btn.addEventListener('click', handler);
+        });
+        
+        // View referrals from profile
+        const viewReferralsBtn = document.getElementById('viewReferralsBtn');
+        if (viewReferralsBtn) {
+            viewReferralsBtn.addEventListener('click', () => {
+                closeModal(elements.profileModal);
+                showReferralModal();
+            });
+        }
+    }
+
+    function setupAuthEventListeners() {
+        // Login button
+        if (elements.loginBtn) {
+            elements.loginBtn.addEventListener('click', () => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const refCode = urlParams.get('ref');
+                const referralInput = document.getElementById('loginReferralCode');
+                if (refCode && referralInput) {
+                    referralInput.value = refCode.toUpperCase();
+                }
+                if (elements.loginModal) {
+                    elements.loginModal.style.display = 'flex';
+                    elements.loginModal.classList.add('active');
+                }
+                setAuthMode('login');
+            });
+        }
+        
+        // Toggle between login and signup
+        const toggleAuthMode = document.getElementById('toggleAuthMode');
+        if (toggleAuthMode) {
+            toggleAuthMode.addEventListener('click', (e) => {
+                e.preventDefault();
+                setAuthMode(state.currentAuthMode === 'login' ? 'signup' : 'login');
+            });
+        }
+        
+        // Auth form submission
+        const authForm = document.getElementById('loginForm');
+        if (authForm) {
+            authForm.addEventListener('submit', handleAuthSubmit);
+        }
+        
+        // User menu dropdown
+        if (elements.userMenuBtn && elements.userDropdown) {
+            elements.userMenuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                elements.userDropdown.classList.toggle('show');
+            });
+            
+            document.addEventListener('click', () => {
+                elements.userDropdown.classList.remove('show');
+            });
+        }
+        
+        // Logout button
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', handleLogout);
+        }
+        
+        // Referral button
+        const referralBtn = document.getElementById('referralBtn');
+        if (referralBtn) {
+            referralBtn.addEventListener('click', showReferralModal);
+        }
+        
+        // Dashboard button
+        const dashboardBtn = document.getElementById('dashboardBtn');
+        if (dashboardBtn) {
+            dashboardBtn.addEventListener('click', () => {
+                if (elements.userDropdown) {
+                    elements.userDropdown.classList.remove('show');
+                }
+                showReferralModal();
+            });
+        }
+        
+        // Profile button
+        const profileBtn = document.getElementById('profileBtn');
+        if (profileBtn) {
+            profileBtn.addEventListener('click', () => {
+                if (elements.userDropdown) {
+                    elements.userDropdown.classList.remove('show');
+                }
+                showProfileModal();
+            });
+        }
+    }
+
+    // ========================================================================
+    // INITIALIZATION
+    // ========================================================================
+    
+    function initialize() {
+        // Initialize DOM elements
+        initializeElements();
+        
+        // Set default form values
+        const pageRange = document.getElementById('pageRange');
+        const includeHeaders = document.getElementById('includeHeaders');
+        const cleanData = document.getElementById('cleanData');
+        
+        if (pageRange) pageRange.value = 'all';
+        if (includeHeaders) includeHeaders.checked = true;
+        if (cleanData) cleanData.checked = true;
+        
+        // Initialize features
+        initializeDarkMode();
+        loadTemplates();
+        checkUserStatus();
+        
+        // Setup all event listeners
+        setupEventListeners();
+        setupDragAndDrop();
+        
+        // Check for referral code in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const refCode = urlParams.get('ref');
+        if (refCode && !state.currentUser) {
+            setTimeout(() => {
+                const referralInput = document.getElementById('loginReferralCode');
+                if (referralInput && elements.loginModal) {
+                    referralInput.value = refCode.toUpperCase();
+                    elements.loginModal.style.display = 'flex';
+                    elements.loginModal.classList.add('active');
+                }
+            }, 1000);
+        }
+    }
+
+    // ========================================================================
+    // START APPLICATION
+    // ========================================================================
+    
+    // Wait for DOM to be ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
+
+    // Performance optimization: Remove will-change after animations complete
+    document.addEventListener('DOMContentLoaded', () => {
+        const container = document.querySelector('.container');
+        if (container) {
+            setTimeout(() => {
+                container.classList.add('loaded');
+            }, 500); // Match animation duration
+        }
+        
+        // Add loaded class to modal content after opening
+        const modals = document.querySelectorAll('.modal');
+        modals.forEach(modal => {
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.attributeName === 'class') {
+                        const modalContent = modal.querySelector('.modal-content');
+                        if (modal.classList.contains('active') && modalContent) {
+                            setTimeout(() => {
+                                modalContent.classList.add('loaded');
+                            }, 300);
+                        } else if (modalContent) {
+                            modalContent.classList.remove('loaded');
+                        }
+                    }
+                });
+            });
+            observer.observe(modal, { attributes: true });
+        });
+    });
+
+    // Expose copyUPI to global scope for HTML onclick
+    window.copyUPI = copyUPI;
+    
+    // Clean up on page unload
+    window.addEventListener('beforeunload', () => {
+        if (state.progressInterval) {
+            clearInterval(state.progressInterval);
+        }
+    });
+
+})();
