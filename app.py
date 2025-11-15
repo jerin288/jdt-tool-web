@@ -1058,8 +1058,6 @@ def admin_add_credits():
             db.session.commit()
             # Expire all cached user objects so logged-in users see updated credits
             db.session.expire_all()
-            # Force session cleanup to ensure fresh data on next access
-            db.session.close()
             logger.info(f"Admin added {credits} credits to all {len(users)} users")
             
             return jsonify({
@@ -1086,8 +1084,6 @@ def admin_add_credits():
             db.session.commit()
             # Expire all cached user objects so logged-in users see updated credits
             db.session.expire_all()
-            # Force session cleanup to ensure fresh data on next access
-            db.session.close()
             logger.info(f"Admin added {credits} credits to {email}")
             
             return jsonify({
