@@ -847,7 +847,13 @@
 
     async function updateCreditsDisplay() {
         try {
-            const response = await fetch('/api/credits');
+            // Add timestamp to bypass cache
+            const response = await fetch(`/api/credits?_=${Date.now()}`, {
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             if (response.ok) {
                 const data = await response.json();
                 if (elements.creditsCount) {
@@ -1623,6 +1629,27 @@
 
     // Expose copyUPI to global scope for HTML onclick
     window.copyUPI = copyUPI;
+    
+    // Force refresh credits when page becomes visible
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && state.currentUser) {
+            updateCreditsDisplay();
+        }
+    });
+    
+    // Also refresh when window gains focus
+    window.addEventListener('focus', function() {
+        if (state.currentUser) {
+            updateCreditsDisplay();
+        }
+    });
+    
+    // Auto-refresh credits every 30 seconds when logged in
+    setInterval(function() {
+        if (state.currentUser) {
+            updateCreditsDisplay();
+        }
+    }, 30000);
     
     // Clean up on page unload
     window.addEventListener('beforeunload', () => {
