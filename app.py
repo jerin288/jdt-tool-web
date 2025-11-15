@@ -569,11 +569,9 @@ def logout():
 def get_credits():
     """Get user's credit information"""
     try:
-        # Refresh user to get latest credit data from database
-        try:
-            db.session.refresh(current_user)
-        except Exception:
-            pass  # User might be in detached state, continue with cached data
+        # Force fresh data from database
+        db.session.expire(current_user)
+        db.session.refresh(current_user)
         available = current_user.get_available_credits()
         total_referrals = ReferralLog.query.filter_by(
             referrer_id=current_user.id,
@@ -602,11 +600,12 @@ def get_credits():
 def get_user_status():
     """Get current user status (for frontend checks)"""
     if current_user.is_authenticated:
-        # Refresh user to get latest credit data from database
+        # Force fresh data from database
         try:
+            db.session.expire(current_user)
             db.session.refresh(current_user)
-        except Exception:
-            pass  # User might be in detached state, continue with cached data
+        except Exception as e:
+            logger.warning(f"Could not refresh user: {e}")
         return jsonify({
             'logged_in': True,
             'email': current_user.email,
@@ -644,11 +643,9 @@ def get_referral_stats():
 def get_profile():
     """Get user profile information"""
     try:
-        # Refresh user to get latest credit data from database
-        try:
-            db.session.refresh(current_user)
-        except Exception:
-            pass  # User might be in detached state, continue with cached data
+        # Force fresh data from database
+        db.session.expire(current_user)
+        db.session.refresh(current_user)
         # Get referral stats
         referrals = ReferralLog.query.filter_by(referrer_id=current_user.id).all()
         total_referrals = len(referrals)
@@ -981,6 +978,44 @@ def admin_test():
         'admin_key_length': len(os.environ.get('ADMIN_KEY', '')) if 'ADMIN_KEY' in os.environ else 0
     }), 200
 
+@app.route('/admin/check_credits', methods=['POST'])
+def admin_check_credits():
+    """Admin endpoint to check user credits - requires admin key"""
+    try:
+        # Verify admin key
+        admin_key = request.json.get('admin_key', '').strip()
+        expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here').strip()
+        
+        if not admin_key or admin_key != expected_key:
+            logger.warning(f"Unauthorized admin check credits attempt")
+            return jsonify({'error': 'Unauthorized - Invalid admin key'}), 403
+        
+        email = request.json.get('email', '').strip().lower()
+        
+        if not email:
+            return jsonify({'error': 'Email required'}), 400
+        
+        # Get user from database
+        user = User.query.filter_by(email=email).first()
+        
+        if not user:
+            return jsonify({'error': f'User {email} not found'}), 404
+        
+        # Force fresh data
+        db.session.refresh(user)
+        
+        return jsonify({
+            'email': user.email,
+            'total_credits': user.total_credits,
+            'used_credits': user.used_credits,
+            'available_credits': user.get_available_credits(),
+            'created_at': user.created_at.isoformat() if user.created_at else None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Check credits error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/admin/add_credits', methods=['POST'])
 def admin_add_credits():
     """Admin endpoint to add credits to users - requires admin key"""
@@ -1023,6 +1058,8 @@ def admin_add_credits():
             db.session.commit()
             # Expire all cached user objects so logged-in users see updated credits
             db.session.expire_all()
+            # Force session cleanup to ensure fresh data on next access
+            db.session.close()
             logger.info(f"Admin added {credits} credits to all {len(users)} users")
             
             return jsonify({
@@ -1049,6 +1086,8 @@ def admin_add_credits():
             db.session.commit()
             # Expire all cached user objects so logged-in users see updated credits
             db.session.expire_all()
+            # Force session cleanup to ensure fresh data on next access
+            db.session.close()
             logger.info(f"Admin added {credits} credits to {email}")
             
             return jsonify({
@@ -1072,11 +1111,9 @@ def admin_add_credits():
 def get_credit_history():
     """Get user's credit transaction history"""
     try:
-        # Refresh user to get latest credit data from database
-        try:
-            db.session.refresh(current_user)
-        except Exception:
-            pass  # User might be in detached state, continue with cached data
+        # Force fresh data from database
+        db.session.expire(current_user)
+        db.session.refresh(current_user)
         transactions = CreditTransaction.query.filter_by(user_id=current_user.id)\
             .order_by(CreditTransaction.timestamp.desc())\
             .limit(50)\
