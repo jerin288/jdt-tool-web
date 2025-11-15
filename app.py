@@ -8,7 +8,7 @@ import secrets
 import string
 import re
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, make_response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
@@ -590,12 +590,16 @@ def logout():
     
     logger.info(f"User logged out: {email}")
     
-    # Create response and clear cookies
-    response = jsonify({'success': True})
-    response.set_cookie('session', '', expires=0, path='/')
-    response.set_cookie('remember_token', '', expires=0, path='/', httponly=True)
+    # Create response and delete all auth cookies
+    response = make_response(jsonify({'success': True}), 200)
     
-    return response, 200
+    # Delete remember_token cookie (Flask-Login's remember me cookie)
+    response.set_cookie('remember_token', '', expires=0, max_age=0, path='/', httponly=True)
+    
+    # Delete session cookie
+    response.set_cookie('session', '', expires=0, max_age=0, path='/', httponly=True)
+    
+    return response
 
 # ==================== Credit & Usage API Routes ====================
 
