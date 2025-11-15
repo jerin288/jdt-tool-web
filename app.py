@@ -140,7 +140,7 @@ def load_user(user_id):
 
 # Helper function to log credit transactions
 def log_credit_transaction(user, amount, transaction_type, description):
-    """Log a credit transaction to the history"""
+    """Log a credit transaction to the history (caller must commit)"""
     try:
         balance_after = user.get_available_credits()
         transaction = CreditTransaction(
@@ -151,11 +151,10 @@ def log_credit_transaction(user, amount, transaction_type, description):
             balance_after=balance_after
         )
         db.session.add(transaction)
-        db.session.commit()
         logger.info(f"Credit transaction logged: {user.email} - {amount} - {transaction_type}")
     except Exception as e:
         logger.error(f"Failed to log credit transaction: {e}")
-        db.session.rollback()
+        raise  # Re-raise so caller can handle rollback
 
 def validate_email(email):
     """Validate email format"""
@@ -457,14 +456,13 @@ def signup():
         
         try:
             db.session.add(user)
+            # Log signup bonus before commit for atomic operation
+            log_credit_transaction(user, 20, 'signup', 'Welcome bonus - 20 credits')
             db.session.commit()
         except Exception as db_error:
             db.session.rollback()
             logger.error(f"Database error during signup: {db_error}")
             return jsonify({'error': 'Registration failed. Please try again.'}), 500
-        
-        # Log signup bonus
-        log_credit_transaction(user, 20, 'signup', 'Welcome bonus - 20 credits')
         
         # Award referral credits if referred
         if referral_code:
@@ -488,10 +486,10 @@ def signup():
                             credited=True
                         )
                         db.session.add(ref_log)
-                        db.session.commit()
                         
-                        # Log referral transaction
+                        # Log referral transaction before commit
                         log_credit_transaction(referrer, 10, 'referral', f'Referral bonus from {email}')
+                        db.session.commit()
                         logger.info(f"Awarded 10 credits to {referrer.email} for referring {email}")
                     except Exception as ref_error:
                         logger.error(f"Error awarding referral credits: {ref_error}")
@@ -731,11 +729,11 @@ def upload_file():
             
             # Deduct credit AFTER file is saved successfully
             current_user.used_credits += 1
+            
+            # Log credit usage before commit for atomic operation
+            log_credit_transaction(current_user, -1, 'conversion', f'PDF conversion: {filename}')
             db.session.commit()
             credit_deducted = True
-            
-            # Log credit usage
-            log_credit_transaction(current_user, -1, 'conversion', f'PDF conversion: {filename}')
             logger.info(f"Credit deducted for {current_user.email}. Remaining: {current_user.get_available_credits()}")
         
         # Get conversion options from form
@@ -786,8 +784,8 @@ def upload_file():
                 with credit_operation_lock:
                     db.session.refresh(current_user)
                     current_user.used_credits = max(0, current_user.used_credits - 1)
-                    db.session.commit()
                     log_credit_transaction(current_user, 1, 'refund', f'Refund due to upload error')
+                    db.session.commit()
                     logger.info(f"Credit refunded for {current_user.email}")
             except Exception as refund_error:
                 logger.error(f"Failed to refund credit: {refund_error}")
@@ -998,6 +996,7 @@ def admin_add_credits():
             for user in users:
                 old_total = user.total_credits
                 user.total_credits += credits
+                # Log transaction before commit for atomic operation
                 log_credit_transaction(user, credits, 'purchase', f'Admin credit purchase - {credits} credits')
                 updated_users.append({
                     'email': user.email,
@@ -1007,6 +1006,8 @@ def admin_add_credits():
                 })
             
             db.session.commit()
+            # Expire all cached user objects so logged-in users see updated credits
+            db.session.expire_all()
             logger.info(f"Admin added {credits} credits to all {len(users)} users")
             
             return jsonify({
@@ -1026,10 +1027,13 @@ def admin_add_credits():
             
             old_total = user.total_credits
             user.total_credits += credits
-            db.session.commit()
             
-            # Log purchase transaction
+            # Log transaction before commit for atomic operation
             log_credit_transaction(user, credits, 'purchase', f'Admin credit purchase - {credits} credits')
+            
+            db.session.commit()
+            # Expire all cached user objects so logged-in users see updated credits
+            db.session.expire_all()
             logger.info(f"Admin added {credits} credits to {email}")
             
             return jsonify({
