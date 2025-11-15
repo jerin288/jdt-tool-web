@@ -580,12 +580,22 @@ def logout():
         email = current_user.email
     except:
         email = "unknown"
+    
+    # Clear the session and logout
     logout_user()
-    session.clear()  # Clear session data
+    session.clear()
+    
     # Expire all objects to prevent stale session issues
     db.session.expire_all()
+    
     logger.info(f"User logged out: {email}")
-    return jsonify({'success': True}), 200
+    
+    # Create response and clear cookies
+    response = jsonify({'success': True})
+    response.set_cookie('session', '', expires=0, path='/')
+    response.set_cookie('remember_token', '', expires=0, path='/', httponly=True)
+    
+    return response, 200
 
 # ==================== Credit & Usage API Routes ====================
 
