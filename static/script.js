@@ -1191,3 +1191,4 @@ function getTransactionIcon(type) {
 document.getElementById('profileBtn')?.addEventListener('click', () => {
     loadCreditHistory();
 });
+

@@ -58,20 +58,6 @@ class User(UserMixin, db.Model):
         """Calculate available credits"""
         return max(0, self.total_credits - self.used_credits)
     
-    def reset_daily_credits(self):
-        """Add 3 daily credits if all credits are used (never reduce existing credits)"""
-        today = datetime.utcnow().date()
-        if self.last_reset_date < today:
-            if self.used_credits >= self.total_credits:
-                # All credits used - add 3 more daily credits
-                self.total_credits += 3
-                # Don't reset used_credits - keep the history
-            self.last_reset_date = today
-            db.session.commit()
-            
-            # Log daily credit bonus
-            log_credit_transaction(self, 3, 'daily', 'Daily credit bonus')
-    
     def set_password(self, password):
         """Hash and set password"""
         from werkzeug.security import generate_password_hash
@@ -488,9 +474,6 @@ def login():
         if not user or not user.check_password(password):
             return jsonify({'error': 'Invalid email or password'}), 401
         
-        # Reset daily credits if needed
-        user.reset_daily_credits()
-        
         # Log user in
         login_user(user, remember=True)
         logger.info(f"User logged in: {email}")
@@ -522,7 +505,6 @@ def logout():
 def get_credits():
     """Get user's credit information"""
     try:
-        current_user.reset_daily_credits()
         
         available = current_user.get_available_credits()
         total_referrals = ReferralLog.query.filter_by(
@@ -552,7 +534,6 @@ def get_credits():
 def get_user_status():
     """Get current user status (for frontend checks)"""
     if current_user.is_authenticated:
-        current_user.reset_daily_credits()
         return jsonify({
             'logged_in': True,
             'email': current_user.email,
@@ -628,7 +609,6 @@ def upload_file():
     """Handle file upload and start conversion"""
     try:
         # Check credits first
-        current_user.reset_daily_credits()
         available_credits = current_user.get_available_credits()
         
         if available_credits < 1:
