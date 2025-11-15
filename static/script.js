@@ -987,11 +987,26 @@
 
     async function handleLogout() {
         try {
-            await fetch('/auth/logout', { method: 'POST' });
-            window.location.reload();
+            const response = await fetch('/auth/logout', { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin'
+            });
+            
+            if (response.ok) {
+                // Successfully logged out, redirect to home
+                window.location.href = '/';
+            } else {
+                console.error('Logout failed with status:', response.status);
+                // Still reload to clear client state
+                window.location.href = '/';
+            }
         } catch (error) {
             console.error('Logout error:', error);
-            showToast('Logout failed', 'error');
+            // Even on error, redirect to clear client state
+            window.location.href = '/';
         }
     }
 
