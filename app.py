@@ -48,7 +48,6 @@ class User(UserMixin, db.Model):
     total_credits = db.Column(db.Integer, default=20)  # Starting credits
     used_credits = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_reset_date = db.Column(db.Date, default=datetime.utcnow().date)
     
     # Relationships
     referrals = db.relationship('ReferralLog', foreign_keys='ReferralLog.referrer_id', backref='referrer', lazy='dynamic')
