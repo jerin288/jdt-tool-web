@@ -567,9 +567,14 @@ def login():
 @login_required
 def logout():
     """Log user out"""
-    email = current_user.email
+    try:
+        email = current_user.email
+    except:
+        email = "unknown"
     logout_user()
     session.clear()  # Clear session data
+    # Expire all objects to prevent stale session issues
+    db.session.expire_all()
     logger.info(f"User logged out: {email}")
     return jsonify({'success': True}), 200
 
@@ -613,20 +618,25 @@ def get_credits():
 @app.route('/api/user-status')
 def get_user_status():
     """Get current user status (for frontend checks)"""
-    if current_user.is_authenticated:
-        # Force fresh data from database
-        try:
-            db.session.expire(current_user)
-            db.session.refresh(current_user)
-        except:
-            pass  # Continue with cached data if refresh fails
-        return jsonify({
-            'logged_in': True,
-            'email': current_user.email,
-            'available_credits': current_user.get_available_credits(),
-            'referral_code': current_user.referral_code
-        }), 200
-    else:
+    try:
+        if current_user.is_authenticated:
+            # Force fresh data from database
+            try:
+                db.session.expire(current_user)
+                db.session.refresh(current_user)
+            except:
+                pass  # Continue with cached data if refresh fails
+            return jsonify({
+                'logged_in': True,
+                'email': current_user.email,
+                'available_credits': current_user.get_available_credits(),
+                'referral_code': current_user.referral_code
+            }), 200
+        else:
+            return jsonify({'logged_in': False}), 200
+    except Exception as e:
+        # If anything goes wrong (e.g., during logout), return logged out state
+        logger.debug(f"User status check error (likely during logout): {e}")
         return jsonify({'logged_in': False}), 200
 
 @app.route('/api/referral-stats')
