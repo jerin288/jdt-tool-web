@@ -149,6 +149,14 @@ class CreditTransaction(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# Initialize database tables (create if they don't exist)
+with app.app_context():
+    try:
+        db.create_all()
+        logger.info("Database tables initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}", exc_info=True)
+
 # Helper function to log credit transactions
 def log_credit_transaction(user, amount, transaction_type, description):
     """Log a credit transaction to the history (caller must commit)"""
