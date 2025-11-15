@@ -27,14 +27,18 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 
 # Database configuration
-# Use persistent storage if DATABASE_PATH is set (for Render disk)
-db_path = os.environ.get('DATABASE_PATH', 'jdt_users.db')
-if db_path.startswith('/'):
-    # Absolute path for persistent disk
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+# Use PostgreSQL if DATABASE_URL is set (Render), otherwise SQLite for local dev
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    # PostgreSQL for production (Render)
+    # Handle both postgres:// and postgresql:// schemes
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
-    # Relative path for local development
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+    # SQLite for local development
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///jdt_users.db'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,

@@ -1,27 +1,26 @@
-services:
+services:  
   - type: web
     name: jdt-tool-web
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-    # Persistent disk for SQLite database
-    disk:
-      name: jdt-database
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: SECRET_KEY
         generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jdt-postgres
+          property: connectionString
       - key: GOOGLE_CLIENT_ID
-        sync: false  # Set this in Render dashboard
+        sync: false
       - key: GOOGLE_CLIENT_SECRET
-        sync: false  # Set this in Render dashboard
+        sync: false
       - key: APP_URL
         value: https://jdpdftoexcel.online
-      - key: DATABASE_PATH
-        value: /var/data/jdt_users.db
-    # Custom domain configuration
-    # Add your domain in Render Dashboard: Settings > Custom Domain
-    # Domain: jdpdftoexcel.online
+
+databases:
+  - name: jdt-postgres
+    databaseName: jdt_database
+    user: jdt_user
