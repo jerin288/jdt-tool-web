@@ -570,7 +570,10 @@ def get_credits():
     """Get user's credit information"""
     try:
         # Refresh user to get latest credit data from database
-        db.session.refresh(current_user)
+        try:
+            db.session.refresh(current_user)
+        except Exception:
+            pass  # User might be in detached state, continue with cached data
         available = current_user.get_available_credits()
         total_referrals = ReferralLog.query.filter_by(
             referrer_id=current_user.id,
@@ -600,7 +603,10 @@ def get_user_status():
     """Get current user status (for frontend checks)"""
     if current_user.is_authenticated:
         # Refresh user to get latest credit data from database
-        db.session.refresh(current_user)
+        try:
+            db.session.refresh(current_user)
+        except Exception:
+            pass  # User might be in detached state, continue with cached data
         return jsonify({
             'logged_in': True,
             'email': current_user.email,
@@ -639,7 +645,10 @@ def get_profile():
     """Get user profile information"""
     try:
         # Refresh user to get latest credit data from database
-        db.session.refresh(current_user)
+        try:
+            db.session.refresh(current_user)
+        except Exception:
+            pass  # User might be in detached state, continue with cached data
         # Get referral stats
         referrals = ReferralLog.query.filter_by(referrer_id=current_user.id).all()
         total_referrals = len(referrals)
@@ -1064,7 +1073,10 @@ def get_credit_history():
     """Get user's credit transaction history"""
     try:
         # Refresh user to get latest credit data from database
-        db.session.refresh(current_user)
+        try:
+            db.session.refresh(current_user)
+        except Exception:
+            pass  # User might be in detached state, continue with cached data
         transactions = CreditTransaction.query.filter_by(user_id=current_user.id)\
             .order_by(CreditTransaction.timestamp.desc())\
             .limit(50)\
