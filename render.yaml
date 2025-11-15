@@ -4,6 +4,11 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
+    # Persistent disk for SQLite database
+    disk:
+      name: jdt-database
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -15,6 +20,8 @@ services:
         sync: false  # Set this in Render dashboard
       - key: APP_URL
         value: https://jdpdftoexcel.online
+      - key: DATABASE_PATH
+        value: /var/data/jdt_users.db
     # Custom domain configuration
     # Add your domain in Render Dashboard: Settings > Custom Domain
     # Domain: jdpdftoexcel.online
