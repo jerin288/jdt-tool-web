@@ -475,12 +475,13 @@ def signup():
         
         try:
             db.session.add(user)
+            db.session.flush()  # Flush to get user.id before logging transaction
             # Log signup bonus before commit for atomic operation
             log_credit_transaction(user, 20, 'signup', 'Welcome bonus - 20 credits')
             db.session.commit()
         except Exception as db_error:
             db.session.rollback()
-            logger.error(f"Database error during signup: {db_error}")
+            logger.error(f"Database error during signup: {db_error}", exc_info=True)
             return jsonify({'error': 'Registration failed. Please try again.'}), 500
         
         # Award referral credits if referred
