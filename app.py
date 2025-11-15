@@ -570,8 +570,11 @@ def get_credits():
     """Get user's credit information"""
     try:
         # Force fresh data from database
-        db.session.expire(current_user)
-        db.session.refresh(current_user)
+        try:
+            db.session.expire(current_user)
+            db.session.refresh(current_user)
+        except:
+            pass  # Continue with cached data if refresh fails
         available = current_user.get_available_credits()
         total_referrals = ReferralLog.query.filter_by(
             referrer_id=current_user.id,
@@ -604,8 +607,8 @@ def get_user_status():
         try:
             db.session.expire(current_user)
             db.session.refresh(current_user)
-        except Exception as e:
-            logger.warning(f"Could not refresh user: {e}")
+        except:
+            pass  # Continue with cached data if refresh fails
         return jsonify({
             'logged_in': True,
             'email': current_user.email,
@@ -644,8 +647,11 @@ def get_profile():
     """Get user profile information"""
     try:
         # Force fresh data from database
-        db.session.expire(current_user)
-        db.session.refresh(current_user)
+        try:
+            db.session.expire(current_user)
+            db.session.refresh(current_user)
+        except:
+            pass  # Continue with cached data if refresh fails
         # Get referral stats
         referrals = ReferralLog.query.filter_by(referrer_id=current_user.id).all()
         total_referrals = len(referrals)
@@ -1108,8 +1114,11 @@ def get_credit_history():
     """Get user's credit transaction history"""
     try:
         # Force fresh data from database
-        db.session.expire(current_user)
-        db.session.refresh(current_user)
+        try:
+            db.session.expire(current_user)
+            db.session.refresh(current_user)
+        except:
+            pass  # Continue with cached data if refresh fails
         transactions = CreditTransaction.query.filter_by(user_id=current_user.id)\
             .order_by(CreditTransaction.timestamp.desc())\
             .limit(50)\
