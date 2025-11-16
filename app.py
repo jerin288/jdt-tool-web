@@ -20,7 +20,10 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
+# Require SECRET_KEY for security (don't use random fallback)
+app.secret_key = os.environ.get('SECRET_KEY')
+if not app.secret_key:
+    raise ValueError("SECRET_KEY environment variable must be set for production")
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
@@ -452,8 +455,8 @@ def signup():
         if not password:
             return jsonify({'error': 'Password required'}), 400
         
-        if len(password) < 6:
-            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        if len(password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
         
         # Validate referral code format if provided
         if referral_code and (len(referral_code) != 8 or not referral_code.isalnum()):
@@ -1034,7 +1037,10 @@ def admin_check_credits():
     try:
         # Verify admin key
         admin_key = request.json.get('admin_key', '').strip()
-        expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here').strip()
+        expected_key = os.environ.get('ADMIN_KEY', '').strip()
+        
+        if not expected_key:
+            return jsonify({'error': 'Admin functionality not configured'}), 503
         
         if not admin_key or admin_key != expected_key:
             logger.warning(f"Unauthorized admin check credits attempt")
@@ -1072,7 +1078,10 @@ def admin_add_credits():
     try:
         # Get admin key from request
         admin_key = request.json.get('admin_key', '').strip()
-        expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here').strip()
+        expected_key = os.environ.get('ADMIN_KEY', '').strip()
+        
+        if not expected_key:
+            return jsonify({'error': 'Admin functionality not configured'}), 503
         
         if not admin_key or admin_key != expected_key:
             logger.warning(f"Unauthorized admin access attempt")
