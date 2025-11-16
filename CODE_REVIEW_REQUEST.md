@@ -25,7 +25,7 @@ Please review for:
 ## Specific Questions
 - Is the password security sufficient?
 - Are there any SQL injection vulnerabilities?
-- Is the credit system race-condition free?
+- Is the credit system race-condition-free?
 - Are file operations secure?
 - Is session management properly implemented?
 
