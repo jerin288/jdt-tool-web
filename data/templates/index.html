@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>JDT PDF to Excel Converter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ range(1, 999999) | random }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fas fa-file-pdf"></i> JDT PDF to Excel Converter</h1>
+            <p class="subtitle">Advanced PDF Extraction Tool - Web Edition</p>
+            <div class="header-controls">
+                <!-- Credits Badge -->
+                <div id="creditsBadge" class="credits-badge" style="display: none;">
+                    <i class="fas fa-gem"></i>
+                    <span id="creditsCount">0</span>
+                    <span class="credits-text">credits</span>
+                </div>
+                
+                <!-- User Menu -->
+                <div id="userMenu" class="user-menu" style="display: none;">
+                    <button id="userMenuBtn" class="icon-btn" title="Account">
+                        <i class="fas fa-user-circle"></i>
+                    </button>
+                    <div id="userDropdown" class="user-dropdown">
+                        <div class="user-email" id="userEmail"></div>
+                        <button id="profileBtn" class="dropdown-item">
+                            <i class="fas fa-user"></i> My Profile
+                        </button>
+                        <button id="dashboardBtn" class="dropdown-item">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </button>
+                        <button id="referralBtn" class="dropdown-item">
+                            <i class="fas fa-share-alt"></i> Get More Credits
+                        </button>
+                        <button id="logoutBtn" class="dropdown-item">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Login Button -->
+                <button id="loginBtn" class="icon-btn" title="Login" style="display: none;">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
+                
+                <button id="darkModeToggle" class="icon-btn" title="Toggle Dark Mode">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button id="historyBtn" class="icon-btn" title="View History">
+                    <i class="fas fa-history"></i>
+                </button>
+                <button id="templatesBtn" class="icon-btn" title="Settings Templates">
+                    <i class="fas fa-save"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Form -->
+        <form id="uploadForm" enctype="multipart/form-data">
+            <!-- PDF File Selection -->
+            <div class="form-section">
+                <div class="section-header">
+                    <i class="fas fa-folder-open"></i> Select PDF File
+                </div>
+                <div class="file-upload-wrapper">
+                    <input type="file" id="pdfFile" name="pdf_file" accept=".pdf,application/pdf" required aria-label="PDF file input">
+                    <label for="pdfFile" class="file-upload-label">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <span id="fileName">Choose PDF file or drag & drop here</span>
+                    </label>
+                    <div class="file-info" id="fileInfo"></div>
+                </div>
+            </div>
+
+            <!-- Advanced Options -->
+            <div class="form-section">
+                <div class="section-header">
+                    <i class="fas fa-cog"></i> Advanced Options
+                </div>
+                
+                <div class="option-grid">
+                    <!-- Page Range -->
+                    <div class="option-group">
+                        <label for="pageRange">Page Range:</label>
+                        <input type="text" id="pageRange" name="page_range" value="all" 
+                               placeholder="e.g., all, 1-3, 1,3,5" 
+                               maxlength="100"
+                               aria-label="Page range selection">
+                        <small class="help-text">Specify pages to extract</small>
+                    </div>
+
+                    <!-- Extract Mode -->
+                    <div class="option-group">
+                        <label for="extractMode">Extract Mode:</label>
+                        <select id="extractMode" name="extract_mode" aria-label="Data extraction mode">
+                            <option value="tables">Tables Only</option>
+                            <option value="text">Text Only</option>
+                            <option value="both">Both Tables & Text</option>
+                        </select>
+                    </div>
+
+                    <!-- Output Format -->
+                    <div class="option-group">
+                        <label for="outputFormat">Output Format:</label>
+                        <select id="outputFormat" name="output_format" aria-label="Output file format">
+                            <option value="xlsx">Excel (.xlsx)</option>
+                            <option value="csv">CSV (.csv)</option>
+                        </select>
+                    </div>
+
+                    <!-- PDF Password -->
+                    <div class="option-group">
+                        <label for="password">
+                            <i class="fas fa-lock"></i> PDF Password:
+                        </label>
+                        <input type="password" id="password" name="password" 
+                               placeholder="If encrypted" 
+                               maxlength="100"
+                               aria-label="PDF password if file is encrypted">
+                    </div>
+                </div>
+
+                <!-- Checkboxes -->
+                <div class="checkbox-group">
+                    <label class="checkbox">
+                        <input type="checkbox" id="mergeTables" name="merge_tables" value="true">
+                        <span class="checkmark"></span>
+                        <span>Merge All Tables</span>
+                    </label>
+                    
+                    <label class="checkbox">
+                        <input type="checkbox" id="includeHeaders" name="include_headers" value="true" checked>
+                        <span class="checkmark"></span>
+                        <span>Include Headers</span>
+                    </label>
+                    
+                    <label class="checkbox">
+                        <input type="checkbox" id="cleanData" name="clean_data" value="true" checked>
+                        <span class="checkmark"></span>
+                        <span>Clean Data</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Template Controls -->
+            <div class="template-controls">
+                <select id="templateSelect" class="template-select">
+                    <option value="">Load a template...</option>
+                </select>
+                <button type="button" id="saveTemplateBtn" class="template-btn" title="Save current settings as template">
+                    <i class="fas fa-bookmark"></i> Save Template
+                </button>
+            </div>
+
+            <!-- Convert Button -->
+            <div class="button-wrapper">
+                <button type="submit" id="convertBtn" class="convert-button">
+                    <i class="fas fa-rocket"></i> Convert to Excel
+                </button>
+            </div>
+        </form>
+
+        <!-- Progress Section -->
+        <div id="progressSection" class="progress-section" style="display: none;">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="status-message" id="statusMessage">Initializing...</div>
+        </div>
+
+        <!-- Result Section -->
+        <div id="resultSection" class="result-section" style="display: none;">
+            <div class="result-success">
+                <i class="fas fa-check-circle"></i>
+                <h3>Conversion Successful!</h3>
+                <div id="resultDetails"></div>
+                <div class="result-actions">
+                    <button id="previewDataBtn" class="preview-button" style="display:none;">
+                        <i class="fas fa-eye"></i> Preview Data
+                    </button>
+                    <button id="downloadBtn" class="download-button">
+                        <i class="fas fa-download"></i> Download File
+                    </button>
+                </div>
+                <button id="convertAnotherBtn" class="secondary-button">
+                    <i class="fas fa-redo"></i> Convert Another
+                </button>
+            </div>
+        </div>
+
+        <!-- Error Section -->
+        <div id="errorSection" class="error-section" style="display: none;">
+            <div class="error-message">
+                <i class="fas fa-exclamation-circle"></i>
+                <h3>Conversion Failed</h3>
+                <p id="errorMessage"></p>
+                <button id="tryAgainBtn" class="secondary-button">
+                    <i class="fas fa-redo"></i> Try Again
+                </button>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>⚡ JDT Tools © 2025 | PDF to Excel Converter v2.0 Web Edition ⚡</p>
+        </div>
+    </div>
+
+    <!-- Drag & Drop Overlay -->
+    <div id="dropOverlay" class="drop-overlay" style="display: none;">
+        <div class="drop-message">
+            <i class="fas fa-file-pdf"></i>
+            <p>Drop PDF file here</p>
+        </div>
+    </div>
+
+    <!-- Data Preview Modal -->
+    <div id="previewModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-table"></i> Data Preview</h2>
+                <button class="modal-close" id="closePreviewModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="previewContent">
+                <div class="preview-info"></div>
+                <div class="preview-table-wrapper"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-history"></i> Conversion History</h2>
+                <button class="modal-close" id="closeHistoryModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="historyContent">
+                <div class="history-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Save Modal -->
+    <div id="templateModal" class="modal" style="display: none;">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2><i class="fas fa-save"></i> Save Settings Template</h2>
+                <button class="modal-close" id="closeTemplateModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <label for="templateName">Template Name:</label>
+                <input type="text" id="templateName" placeholder="e.g., Financial Reports" class="template-input">
+                <div class="modal-actions">
+                    <button id="saveTemplateConfirm" class="modal-btn primary">
+                        <i class="fas fa-check"></i> Save
+                    </button>
+                    <button id="cancelTemplateSave" class="modal-btn secondary">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal" style="display: none;">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2><i class="fas fa-sign-in-alt"></i> Login to Continue</h2>
+                <button class="modal-close" id="closeLoginModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="loginFormContainer">
+                    <form id="loginForm" style="margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label for="loginEmail">Email</label>
+                            <input type="email" id="loginEmail" placeholder="Enter your email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" placeholder="Enter your password" required>
+                        </div>
+                        <div class="form-group" style="display: none;" id="signupPasswordConfirmGroup">
+                            <label for="signupPasswordConfirm">Confirm Password</label>
+                            <input type="password" id="signupPasswordConfirm" placeholder="Confirm your password">
+                        </div>
+                        <div class="form-group" style="display: none;" id="referralCodeGroup">
+                            <label for="loginReferralCode">Referral Code (Optional)</label>
+                            <input type="text" id="loginReferralCode" placeholder="Enter referral code" maxlength="8">
+                        </div>
+                        <div id="authError" class="error-message" style="display: none; color: red; margin-bottom: 10px;"></div>
+                        <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width: 100%;">
+                            <i class="fas fa-sign-in-alt"></i> Login
+                        </button>
+                    </form>
+                    
+                    <div style="text-align: center; margin-top: 15px;">
+                        <a href="#" id="toggleAuthMode" style="color: #4285f4;">Don't have an account? Sign up</a>
+                    </div>
+                </div>
+                
+                <p class="modal-note">
+                    <i class="fas fa-info-circle"></i> New users get 20 free credits to start!
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Out of Credits Modal -->
+    <div id="outOfCreditsModal" class="modal" style="display: none;">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2><i class="fas fa-gem"></i> Out of Credits!</h2>
+                <button class="modal-close" id="closeCreditsModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-description">You've used all your daily credits. Get more by sharing!</p>
+                
+                <div class="credits-info">
+                    <div class="credit-offer">
+                        <i class="fas fa-gift"></i>
+                        <strong>Earn +5 Credits</strong>
+                        <p>For each friend who signs up with your link</p>
+                    </div>
+                </div>
+                
+                <div class="referral-box">
+                    <label>Your Referral Link:</label>
+                    <div class="referral-link-container">
+                        <input type="text" id="referralLinkInput" readonly class="referral-link-input">
+                        <button id="copyReferralLink" class="modal-btn secondary">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="share-buttons">
+                    <button id="shareTwitter" class="share-btn twitter">
+                        <i class="fab fa-twitter"></i> Share on Twitter
+                    </button>
+                    <button id="shareWhatsApp" class="share-btn whatsapp">
+                        <i class="fab fa-whatsapp"></i> Share on WhatsApp
+                    </button>
+                </div>
+                
+                <p class="modal-note">
+                    <i class="fas fa-clock"></i> Daily credits reset at midnight
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div id="profileModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-user-circle"></i> My Profile</h2>
+                <button class="modal-close" id="closeProfileModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="profile-section">
+                    <h3><i class="fas fa-info-circle"></i> Account Information</h3>
+                    <div class="profile-info">
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-envelope"></i> Email:</span>
+                            <span class="info-value" id="profileEmail">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-calendar-alt"></i> Member Since:</span>
+                            <span class="info-value" id="profileJoinDate">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-tag"></i> Referral Code:</span>
+                            <span class="info-value">
+                                <code id="profileReferralCode">-</code>
+                                <button id="copyProfileReferralCode" class="copy-btn-small" title="Copy code">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-section">
+                    <h3><i class="fas fa-chart-bar"></i> Usage Statistics</h3>
+                    <div class="profile-stats">
+                        <div class="stat-card-small">
+                            <i class="fas fa-gem"></i>
+                            <div class="stat-value" id="profileTotalCredits">0</div>
+                            <div class="stat-label">Total Credits</div>
+                        </div>
+                        <div class="stat-card-small">
+                            <i class="fas fa-check-circle"></i>
+                            <div class="stat-value" id="profileUsedCredits">0</div>
+                            <div class="stat-label">Used Credits</div>
+                        </div>
+                        <div class="stat-card-small">
+                            <i class="fas fa-trophy"></i>
+                            <div class="stat-value" id="profileAvailableCredits">0</div>
+                            <div class="stat-label">Available</div>
+                        </div>
+                        <div class="stat-card-small">
+                            <i class="fas fa-file-pdf"></i>
+                            <div class="stat-value" id="profileTotalConversions">0</div>
+                            <div class="stat-label">Conversions</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-section">
+                    <h3><i class="fas fa-users"></i> Referral Performance</h3>
+                    <div class="profile-info">
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-user-plus"></i> Total Referrals:</span>
+                            <span class="info-value" id="profileTotalReferrals">0</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-gift"></i> Credits from Referrals:</span>
+                            <span class="info-value" id="profileReferralCredits">0</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label"><i class="fas fa-user-tag"></i> Referred By:</span>
+                            <span class="info-value" id="profileReferredBy">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-section">
+                    <h3><i class="fas fa-history"></i> Credit History</h3>
+                    <div class="credit-history-container">
+                        <div id="creditHistoryList" class="credit-history-list">
+                            <div class="loading-message">Loading history...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-actions">
+                    <button id="viewReferralsBtn" class="modal-btn primary">
+                        <i class="fas fa-share-alt"></i> View Referral Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Referral Dashboard Modal -->
+    <div id="referralModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-share-alt"></i> Get More Credits</h2>
+                <button class="modal-close" id="closeReferralModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="referral-stats">
+                    <div class="stat-card">
+                        <i class="fas fa-gem"></i>
+                        <div class="stat-value" id="availableCredits">0</div>
+                        <div class="stat-label">Available Credits</div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-users"></i>
+                        <div class="stat-value" id="totalReferrals">0</div>
+                        <div class="stat-label">Successful Referrals</div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-trophy"></i>
+                        <div class="stat-value" id="creditsEarned">0</div>
+                        <div class="stat-label">Credits Earned</div>
+                    </div>
+                </div>
+                
+                <div class="referral-box">
+                    <h3>Share Your Referral Link</h3>
+                    <p>Each friend who signs up gives you +10 credits!</p>
+                    <div class="referral-link-container">
+                        <input type="text" id="dashboardReferralLink" readonly class="referral-link-input">
+                        <button id="copyDashboardLink" class="modal-btn secondary">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Pricing Section -->
+                <div class="pricing-section">
+                    <h3><i class="fas fa-shopping-cart"></i> Buy Credits</h3>
+                    <p class="pricing-info">Need more credits? Purchase them directly!</p>
+                    
+                    <div class="pricing-plans">
+                        <div class="pricing-card">
+                            <div class="plan-credits">100 Credits</div>
+                            <div class="plan-price">₹99</div>
+                        </div>
+                        <div class="pricing-card popular">
+                            <div class="popular-badge">Popular</div>
+                            <div class="plan-credits">200 Credits</div>
+                            <div class="plan-price">₹199</div>
+                        </div>
+                        <div class="pricing-card">
+                            <div class="plan-credits">300 Credits</div>
+                            <div class="plan-price">₹299</div>
+                        </div>
+                        <div class="pricing-card">
+                            <div class="plan-credits">400 Credits</div>
+                            <div class="plan-price">₹399</div>
+                        </div>
+                        <div class="pricing-card best-value">
+                            <div class="popular-badge">Best Value</div>
+                            <div class="plan-credits">500 Credits</div>
+                            <div class="plan-price">₹499</div>
+                        </div>
+                    </div>
+                    
+                    <div class="payment-info">
+                        <h4><i class="fas fa-info-circle"></i> How to Purchase</h4>
+                        <ol>
+                            <li>Send an email to <a href="mailto:jerinad123@gmail.com" class="email-link">jerinad123@gmail.com</a> with your registered email and desired credit plan</li>
+                            <li>Make payment via UPI to: <strong class="upi-id">jerinad123@pingpay</strong> 
+                                <button class="copy-upi-btn" onclick="copyUPI()" title="Copy UPI ID">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </li>
+                            <li>Send payment screenshot to confirm</li>
+                            <li>Credits will be added to your account within 24 hours</li>
+                        </ol>
+                    </div>
+                </div>
+                
+                <div class="share-buttons">
+                    <button id="dashboardShareTwitter" class="share-btn twitter">
+                        <i class="fab fa-twitter"></i> Share on Twitter
+                    </button>
+                    <button id="dashboardShareWhatsApp" class="share-btn whatsapp">
+                        <i class="fab fa-whatsapp"></i> Share on WhatsApp
+                    </button>
+                    <button id="dashboardShareLinkedIn" class="share-btn linkedin">
+                        <i class="fab fa-linkedin"></i> Share on LinkedIn
+                    </button>
+                </div>
+                
+                <div id="referralListContainer" class="referral-list">
+                    <h3>Your Referrals</h3>
+                    <div id="referralList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v={{ range(1, 999999) | random }}"></script>
+</body>
+</html>
