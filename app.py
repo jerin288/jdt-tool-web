@@ -23,6 +23,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+# Trigger full codebase review by CodeRabbit
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 
