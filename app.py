@@ -266,150 +266,150 @@ class PDFConverter:
                                 'suggestion': 'Try using "all" or a valid range like "1-3"'
                             }
                         return None
-                
-                all_tables = []
-                all_text = []
-                extract_mode = options.get('extract_mode', 'tables')
-                
-                # Extract data based on mode
-                with conversion_progress_lock:
-                    conversion_progress[task_id] = {
-                        'status': 'processing', 
-                        'progress': 30, 
-                        'message': f'Extracting data from {len(pages_to_extract)} pages...'
-                    }
-                
-                progress_increment = 50 / len(pages_to_extract)
-                current_progress = 30
-                
-                for page_idx in pages_to_extract:
-                    page = pdf.pages[page_idx]
                     
-                    # Extract tables
-                    if extract_mode in ["tables", "both"]:
-                        tables = page.extract_tables()
-                        if tables:
-                            for table in tables:
-                                if table and len(table) > 0:
-                                    # Check if first row should be header
-                                    if options.get('include_headers', True) and len(table) > 1:
-                                        df = pd.DataFrame(table[1:], columns=table[0])  # type: ignore[arg-type]
-                                    else:
-                                        df = pd.DataFrame(table)
-                                    
-                                    # Clean data if option is enabled
-                                    if options.get('clean_data', True):
-                                        df = PDFConverter.clean_dataframe(df)
-                                    
-                                    if not df.empty:
-                                        all_tables.append(df)
+                    all_tables = []
+                    all_text = []
+                    extract_mode = options.get('extract_mode', 'tables')
                     
-                    # Extract text
-                    if extract_mode in ["text", "both"]:
-                        text = page.extract_text()
-                        if text:
-                            all_text.append({
-                                'Page': page_idx + 1,
-                                'Text': text
-                            })
-                    
-                    current_progress += progress_increment
+                    # Extract data based on mode
                     with conversion_progress_lock:
                         conversion_progress[task_id] = {
-                            'status': 'processing',
-                            'progress': min(80, int(current_progress)),
-                            'message': f'Processing page {page_idx + 1} of {total_pages}...'
+                            'status': 'processing', 
+                            'progress': 30, 
+                            'message': f'Extracting data from {len(pages_to_extract)} pages...'
                         }
-                
-                # Check if any data was extracted
-                if not all_tables and not all_text:
-                    with conversion_progress_lock:
-                        conversion_progress[task_id] = {
-                            'status': 'error',
-                            'message': 'No data found in the PDF!',
-                            'error_type': 'no_data',
-                            'suggestion': 'This PDF may contain images or scanned content. Try using "text" extraction mode or ensure the PDF has actual text/tables.'
-                        }
-                    return None
-                
-                # Merge tables if option is enabled
-                if options.get('merge_tables', False) and all_tables:
-                    with conversion_progress_lock:
-                        conversion_progress[task_id] = {
-                            'status': 'processing',
-                            'progress': 85,
-                            'message': 'Merging tables...'
-                        }
-                    all_tables = [pd.concat(all_tables, ignore_index=True)]
-                
-                # Save based on format
-                with conversion_progress_lock:
-                    conversion_progress[task_id] = {
-                        'status': 'processing',
-                        'progress': 90,
-                        'message': 'Saving file...'
-                    }
-                
-                output_format = options.get('output_format', 'xlsx')
-                output_filename = f"converted_{uuid.uuid4().hex[:8]}.{output_format}"
-                output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
-                
-                if output_format == "xlsx":
-                    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                        # Write tables
-                        for i, table in enumerate(all_tables):
-                            sheet_name = f'Table_{i+1}' if not options.get('merge_tables', False) else 'Merged_Data'
-                            table.to_excel(writer, sheet_name=sheet_name, index=False)
+                    
+                    progress_increment = 50 / len(pages_to_extract)
+                    current_progress = 30
+                    
+                    for page_idx in pages_to_extract:
+                        page = pdf.pages[page_idx]
+                    
+                        # Extract tables
+                        if extract_mode in ["tables", "both"]:
+                            tables = page.extract_tables()
+                            if tables:
+                                for table in tables:
+                                    if table and len(table) > 0:
+                                        # Check if first row should be header
+                                        if options.get('include_headers', True) and len(table) > 1:
+                                            df = pd.DataFrame(table[1:], columns=table[0])  # type: ignore[arg-type]
+                                        else:
+                                            df = pd.DataFrame(table)
+                                        
+                                        # Clean data if option is enabled
+                                        if options.get('clean_data', True):
+                                            df = PDFConverter.clean_dataframe(df)
+                                        
+                                        if not df.empty:
+                                            all_tables.append(df)
                         
-                        # Write text if extracted
-                        if all_text:
+                        # Extract text
+                        if extract_mode in ["text", "both"]:
+                            text = page.extract_text()
+                            if text:
+                                all_text.append({
+                                    'Page': page_idx + 1,
+                                    'Text': text
+                                })
+                        
+                        current_progress += progress_increment
+                        with conversion_progress_lock:
+                            conversion_progress[task_id] = {
+                                'status': 'processing',
+                                'progress': min(80, int(current_progress)),
+                                'message': f'Processing page {page_idx + 1} of {total_pages}...'
+                            }
+                
+                    # Check if any data was extracted
+                    if not all_tables and not all_text:
+                        with conversion_progress_lock:
+                            conversion_progress[task_id] = {
+                                'status': 'error',
+                                'message': 'No data found in the PDF!',
+                                'error_type': 'no_data',
+                                'suggestion': 'This PDF may contain images or scanned content. Try using "text" extraction mode or ensure the PDF has actual text/tables.'
+                            }
+                        return None
+                    
+                    # Merge tables if option is enabled
+                    if options.get('merge_tables', False) and all_tables:
+                        with conversion_progress_lock:
+                            conversion_progress[task_id] = {
+                                'status': 'processing',
+                                'progress': 85,
+                                'message': 'Merging tables...'
+                            }
+                        all_tables = [pd.concat(all_tables, ignore_index=True)]
+                    
+                    # Save based on format
+                    with conversion_progress_lock:
+                        conversion_progress[task_id] = {
+                            'status': 'processing',
+                            'progress': 90,
+                            'message': 'Saving file...'
+                        }
+                    
+                    output_format = options.get('output_format', 'xlsx')
+                    output_filename = f"converted_{uuid.uuid4().hex[:8]}.{output_format}"
+                    output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+                    
+                    if output_format == "xlsx":
+                        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                            # Write tables
+                            for i, table in enumerate(all_tables):
+                                sheet_name = f'Table_{i+1}' if not options.get('merge_tables', False) else 'Merged_Data'
+                                table.to_excel(writer, sheet_name=sheet_name, index=False)
+                            
+                            # Write text if extracted
+                            if all_text:
+                                text_df = pd.DataFrame(all_text)
+                                text_df.to_excel(writer, sheet_name='Extracted_Text', index=False)
+                    else:  # csv format
+                        if all_tables:
+                            # For CSV, save the first/merged table
+                            all_tables[0].to_csv(output_path, index=False)
+                        elif all_text:
                             text_df = pd.DataFrame(all_text)
-                            text_df.to_excel(writer, sheet_name='Extracted_Text', index=False)
-                else:  # csv format
+                            text_df.to_csv(output_path, index=False)
+                    
+                    # Store preview data (first 50 rows)
+                    preview_data = None
                     if all_tables:
-                        # For CSV, save the first/merged table
-                        all_tables[0].to_csv(output_path, index=False)
+                        preview_df = all_tables[0].head(50)
+                        # Replace NaN with None for JSON serialization
+                        preview_df = preview_df.fillna('')
+                        preview_data = {
+                            'columns': preview_df.columns.tolist(),
+                            'rows': preview_df.values.tolist(),
+                            'total_rows': len(all_tables[0])
+                        }
                     elif all_text:
-                        text_df = pd.DataFrame(all_text)
-                        text_df.to_csv(output_path, index=False)
-                
-                # Store preview data (first 50 rows)
-                preview_data = None
-                if all_tables:
-                    preview_df = all_tables[0].head(50)
-                    # Replace NaN with None for JSON serialization
-                    preview_df = preview_df.fillna('')
-                    preview_data = {
-                        'columns': preview_df.columns.tolist(),
-                        'rows': preview_df.values.tolist(),
-                        'total_rows': len(all_tables[0])
-                    }
-                elif all_text:
-                    preview_data = {
-                        'text_preview': all_text[:5]  # First 5 pages
-                    }
-                
-                with conversion_results_lock:
-                    conversion_results[task_id] = {
-                        'preview_data': preview_data,
-                        'output_path': output_path,
-                        'output_filename': output_filename,
-                        'timestamp': datetime.now()
-                    }
-                
-                # Success
-                with conversion_progress_lock:
-                    conversion_progress[task_id] = {
-                        'status': 'completed',
-                        'progress': 100,
-                        'message': 'Conversion completed successfully!',
-                        'output_file': output_filename,
-                        'table_count': len(all_tables),
-                        'text_count': len(all_text),
-                        'has_preview': preview_data is not None
-                    }
-                
-                return output_path
+                        preview_data = {
+                            'text_preview': all_text[:5]  # First 5 pages
+                        }
+                    
+                    with conversion_results_lock:
+                        conversion_results[task_id] = {
+                            'preview_data': preview_data,
+                            'output_path': output_path,
+                            'output_filename': output_filename,
+                            'timestamp': datetime.now()
+                        }
+                    
+                    # Success
+                    with conversion_progress_lock:
+                        conversion_progress[task_id] = {
+                            'status': 'completed',
+                            'progress': 100,
+                            'message': 'Conversion completed successfully!',
+                            'output_file': output_filename,
+                            'table_count': len(all_tables),
+                            'text_count': len(all_text),
+                            'has_preview': preview_data is not None
+                        }
+                    
+                    return output_path
                     
             except pdfplumber.pdfminer.pdfdocument.PDFPasswordIncorrect:
                 logger.error(f"Password incorrect for task {task_id}")
