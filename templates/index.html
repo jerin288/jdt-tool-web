@@ -201,7 +201,7 @@
             <div class="error-message">
                 <i class="fas fa-exclamation-circle"></i>
                 <h3>Conversion Failed</h3>
-                <p id="errorMessage"></p>
+                <div id="errorMessage"></div>
                 <button id="tryAgainBtn" class="secondary-button">
                     <i class="fas fa-redo"></i> Try Again
                 </button>
@@ -338,7 +338,7 @@
                 <div class="credits-info">
                     <div class="credit-offer">
                         <i class="fas fa-gift"></i>
-                        <strong>Earn +5 Credits</strong>
+                        <strong>Earn +10 Credits</strong>
                         <p>For each friend who signs up with your link</p>
                     </div>
                 </div>
@@ -538,7 +538,7 @@
                         <ol>
                             <li>Send an email to <a href="mailto:jerinad123@gmail.com" class="email-link">jerinad123@gmail.com</a> with your registered email and desired credit plan</li>
                             <li>Make payment via UPI to: <strong class="upi-id">jerinad123@pingpay</strong> 
-                                <button class="copy-upi-btn" onclick="copyUPI()" title="Copy UPI ID">
+                                <button class="copy-upi-btn" id="copyUpiBtn" type="button" title="Copy UPI ID">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </li>

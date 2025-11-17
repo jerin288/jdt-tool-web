@@ -475,7 +475,8 @@
                 } else if (progress.status === 'error') {
                     clearInterval(state.progressInterval);
                     state.progressInterval = null;
-                    showError(progress.message);
+                    // Pass full progress object for detailed error info
+                    showError(progress.message, progress);
                 }
                 
             } catch (error) {
@@ -534,14 +535,59 @@
         }
     }
 
-    function showError(message) {
+    function showError(message, errorData) {
         hideAllSections();
         if (elements.errorSection) {
             elements.errorSection.style.display = 'block';
         }
-        if (elements.errorMessage) {
-            elements.errorMessage.textContent = message || 'An unexpected error occurred';
+        
+        // Build comprehensive error display
+        let errorHTML = `<p class="error-main-message">${escapeHtml(message || 'An unexpected error occurred')}</p>`;
+        
+        // Add suggestion if available
+        if (errorData && errorData.suggestion) {
+            errorHTML += `
+                <div class="error-suggestion">
+                    <i class="fas fa-lightbulb"></i>
+                    <strong>Suggestion:</strong> ${escapeHtml(errorData.suggestion)}
+                </div>
+            `;
         }
+        
+        // Add error type badge if available
+        if (errorData && errorData.error_type) {
+            const errorTypeLabels = {
+                'invalid_range': 'Invalid Page Range',
+                'no_data': 'No Data Found',
+                'wrong_password': 'Incorrect Password',
+                'corrupted_pdf': 'Corrupted PDF',
+                'permission_denied': 'Permission Denied',
+                'memory_error': 'File Too Large',
+                'empty_data': 'Empty Data',
+                'password_required': 'Password Required',
+                'encrypted': 'Encrypted PDF',
+                'encoding_error': 'Encoding Error',
+                'timeout': 'Timeout',
+                'unknown': 'Error'
+            };
+            const errorLabel = errorTypeLabels[errorData.error_type] || 'Error';
+            errorHTML += `<div class="error-type-badge">${escapeHtml(errorLabel)}</div>`;
+        }
+        
+        // Add technical details if available (for advanced users)
+        if (errorData && errorData.technical_details) {
+            errorHTML += `
+                <details class="error-technical-details">
+                    <summary>Technical Details</summary>
+                    <pre>${escapeHtml(errorData.technical_details)}</pre>
+                </details>
+            `;
+        }
+        
+        if (elements.errorMessage) {
+            elements.errorMessage.innerHTML = errorHTML;
+        }
+        
         if (elements.convertBtn) {
             elements.convertBtn.disabled = false;
         }
@@ -1470,6 +1516,12 @@
             if (btn) btn.addEventListener('click', handler);
         });
         
+        // Copy UPI button
+        const copyUpiBtn = document.getElementById('copyUpiBtn');
+        if (copyUpiBtn) {
+            copyUpiBtn.addEventListener('click', copyUPI);
+        }
+        
         // View referrals from profile
         const viewReferralsBtn = document.getElementById('viewReferralsBtn');
         if (viewReferralsBtn) {
@@ -1642,9 +1694,6 @@
         });
     });
 
-    // Expose copyUPI to global scope for HTML onclick
-    window.copyUPI = copyUPI;
-    
     // Force refresh credits when page becomes visible
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden && state.currentUser) {

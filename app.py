@@ -49,7 +49,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 # Initialize extensions
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
-login_manager.login_view = 'index'
+login_manager.login_view = 'index'  # type: ignore[assignment]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -163,7 +163,7 @@ def log_credit_transaction(user, amount, transaction_type, description):
     """Log a credit transaction to the history (caller must commit)"""
     try:
         balance_after = user.get_available_credits()
-        transaction = CreditTransaction(
+        transaction = CreditTransaction(  # type: ignore[call-arg]
             user_id=user.id,
             amount=amount,
             transaction_type=transaction_type,
@@ -249,20 +249,23 @@ class PDFConverter:
             with conversion_progress_lock:
                 conversion_progress[task_id] = {'status': 'processing', 'progress': 20, 'message': 'Opening PDF...'}
             
-            with pdfplumber.open(pdf_path, password=password) as pdf:
-                total_pages = len(pdf.pages)
-                
-                # Parse page range
-                page_range_str = options.get('page_range', 'all')
-                pages_to_extract = PDFConverter.parse_page_range(page_range_str, total_pages)
-                
-                if not pages_to_extract:
-                    with conversion_progress_lock:
-                        conversion_progress[task_id] = {
-                            'status': 'error',
-                            'message': 'No valid pages to extract!'
-                        }
-                    return None
+            try:
+                with pdfplumber.open(pdf_path, password=password) as pdf:
+                    total_pages = len(pdf.pages)
+                    
+                    # Parse page range
+                    page_range_str = options.get('page_range', 'all')
+                    pages_to_extract = PDFConverter.parse_page_range(page_range_str, total_pages)
+                    
+                    if not pages_to_extract:
+                        with conversion_progress_lock:
+                            conversion_progress[task_id] = {
+                                'status': 'error',
+                                'message': 'No valid pages to extract! Please check your page range.',
+                                'error_type': 'invalid_range',
+                                'suggestion': 'Try using "all" or a valid range like "1-3"'
+                            }
+                        return None
                 
                 all_tables = []
                 all_text = []
@@ -290,7 +293,7 @@ class PDFConverter:
                                 if table and len(table) > 0:
                                     # Check if first row should be header
                                     if options.get('include_headers', True) and len(table) > 1:
-                                        df = pd.DataFrame(table[1:], columns=table[0])
+                                        df = pd.DataFrame(table[1:], columns=table[0])  # type: ignore[arg-type]
                                     else:
                                         df = pd.DataFrame(table)
                                     
@@ -323,7 +326,9 @@ class PDFConverter:
                     with conversion_progress_lock:
                         conversion_progress[task_id] = {
                             'status': 'error',
-                            'message': 'No data found in the PDF!'
+                            'message': 'No data found in the PDF!',
+                            'error_type': 'no_data',
+                            'suggestion': 'This PDF may contain images or scanned content. Try using "text" extraction mode or ensure the PDF has actual text/tables.'
                         }
                     return None
                 
@@ -405,13 +410,95 @@ class PDFConverter:
                     }
                 
                 return output_path
-                
-        except Exception as e:
-            logger.error(f"Conversion error for task {task_id}: {str(e)}", exc_info=True)
+                    
+            except pdfplumber.pdfminer.pdfdocument.PDFPasswordIncorrect:
+                logger.error(f"Password incorrect for task {task_id}")
+                with conversion_progress_lock:
+                    conversion_progress[task_id] = {
+                        'status': 'error',
+                        'message': 'Incorrect password provided!',
+                        'error_type': 'wrong_password',
+                        'suggestion': 'Please check your password and try again. The PDF is password-protected.'
+                    }
+                return None
+                    
+            except pdfplumber.pdfminer.pdfparser.PDFSyntaxError as e:
+                logger.error(f"Corrupted PDF for task {task_id}: {str(e)}")
+                with conversion_progress_lock:
+                    conversion_progress[task_id] = {
+                        'status': 'error',
+                        'message': 'The PDF file appears to be corrupted or invalid!',
+                        'error_type': 'corrupted_pdf',
+                        'suggestion': 'Please try opening the PDF in a PDF reader to verify it\'s not damaged. You may need to repair or re-download the file.'
+                    }
+                return None
+                    
+            except PermissionError:
+                logger.error(f"Permission denied for task {task_id}")
+                with conversion_progress_lock:
+                    conversion_progress[task_id] = {
+                        'status': 'error',
+                        'message': 'Cannot access the PDF file!',
+                        'error_type': 'permission_denied',
+                        'suggestion': 'The file may be locked by another program. Please close any PDF readers and try again.'
+                    }
+                return None
+                            
+        except MemoryError:
+            logger.error(f"Memory error for task {task_id}")
             with conversion_progress_lock:
                 conversion_progress[task_id] = {
                     'status': 'error',
-                    'message': f'An error occurred during conversion: {str(e)}'
+                    'message': 'PDF file is too large to process!',
+                    'error_type': 'memory_error',
+                    'suggestion': 'Try processing fewer pages at a time or splitting the PDF into smaller files.'
+                }
+            return None
+        
+        except pd.errors.EmptyDataError:
+            logger.error(f"Empty data error for task {task_id}")
+            with conversion_progress_lock:
+                conversion_progress[task_id] = {
+                    'status': 'error',
+                    'message': 'The extracted data is empty!',
+                    'error_type': 'empty_data',
+                    'suggestion': 'The PDF may not contain valid table structures. Try switching to "text" extraction mode.'
+                }
+            return None
+        
+        except Exception as e:
+            logger.error(f"Conversion error for task {task_id}: {str(e)}", exc_info=True)
+            error_message = str(e)
+            
+            # Provide more specific error messages for common issues
+            if 'password' in error_message.lower():
+                friendly_message = 'This PDF requires a password!'
+                suggestion = 'Please enter the PDF password in the "PDF Password" field and try again.'
+                error_type = 'password_required'
+            elif 'encrypted' in error_message.lower():
+                friendly_message = 'This PDF is encrypted!'
+                suggestion = 'The PDF is protected. You need to provide the correct password to extract data.'
+                error_type = 'encrypted'
+            elif 'decode' in error_message.lower() or 'encoding' in error_message.lower():
+                friendly_message = 'Unable to decode PDF content!'
+                suggestion = 'The PDF may have encoding issues. Try re-saving it with a PDF editor first.'
+                error_type = 'encoding_error'
+            elif 'timeout' in error_message.lower():
+                friendly_message = 'Processing took too long!'
+                suggestion = 'The PDF is very complex. Try processing fewer pages or simplifying the document.'
+                error_type = 'timeout'
+            else:
+                friendly_message = f'Conversion failed: {error_message[:100]}'
+                suggestion = 'Please check your PDF file and settings, then try again.'
+                error_type = 'unknown'
+            
+            with conversion_progress_lock:
+                conversion_progress[task_id] = {
+                    'status': 'error',
+                    'message': friendly_message,
+                    'error_type': error_type,
+                    'suggestion': suggestion,
+                    'technical_details': error_message if len(error_message) < 200 else error_message[:200] + '...'
                 }
             return None
         finally:
@@ -465,7 +552,7 @@ def signup():
             return jsonify({'error': 'Email already registered'}), 400
         
         # Create new user
-        user = User(
+        user = User(  # type: ignore[call-arg]
             email=email,
             referral_code=User.generate_referral_code(),
             referred_by_code=referral_code if referral_code else None,
@@ -501,7 +588,7 @@ def signup():
                         referrer.total_credits += 10
                         
                         # Log the referral
-                        ref_log = ReferralLog(
+                        ref_log = ReferralLog(  # type: ignore[call-arg]
                             referrer_id=referrer.id,
                             referee_email=email,
                             credited=True
@@ -756,7 +843,7 @@ def upload_file():
                 return jsonify({'error': 'No file uploaded'}), 400
             
             file = request.files['pdf_file']
-            if file.filename == '':
+            if file.filename == '' or file.filename is None:
                 return jsonify({'error': 'No file selected'}), 400
             
             if not file.filename.lower().endswith('.pdf'):
@@ -817,7 +904,7 @@ def upload_file():
             task_timestamps[task_id] = datetime.now()
         
         # Log conversion
-        conversion = Conversion(
+        conversion = Conversion(  # type: ignore[call-arg]
             user_id=current_user.id,
             filename=filename,
             task_id=task_id
@@ -1034,14 +1121,14 @@ def admin_check_credits():
     """Admin endpoint to check user credits - requires admin key"""
     try:
         # Verify admin key
-        admin_key = request.json.get('admin_key', '').strip()
+        admin_key = request.json.get('admin_key', '').strip() if request.json else ''  # type: ignore[union-attr]
         expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here').strip()
         
         if not admin_key or admin_key != expected_key:
             logger.warning(f"Unauthorized admin check credits attempt")
             return jsonify({'error': 'Unauthorized - Invalid admin key'}), 403
         
-        email = request.json.get('email', '').strip().lower()
+        email = request.json.get('email', '').strip().lower() if request.json else ''  # type: ignore[union-attr]
         
         if not email:
             return jsonify({'error': 'Email required'}), 400
@@ -1072,16 +1159,16 @@ def admin_add_credits():
     """Admin endpoint to add credits to users - requires admin key"""
     try:
         # Get admin key from request
-        admin_key = request.json.get('admin_key', '').strip()
+        admin_key = request.json.get('admin_key', '').strip() if request.json else ''  # type: ignore[union-attr]
         expected_key = os.environ.get('ADMIN_KEY', 'your_secure_admin_key_here').strip()
         
         if not admin_key or admin_key != expected_key:
             logger.warning(f"Unauthorized admin access attempt")
             return jsonify({'error': 'Unauthorized - Invalid admin key'}), 403
         
-        email = request.json.get('email')
-        credits = request.json.get('credits', 0)
-        add_to_all = request.json.get('add_to_all', False)
+        email = request.json.get('email') if request.json else None  # type: ignore[union-attr]
+        credits = request.json.get('credits', 0) if request.json else 0  # type: ignore[union-attr]
+        add_to_all = request.json.get('add_to_all', False) if request.json else False  # type: ignore[union-attr]
         
         if not isinstance(credits, int) or credits == 0:
             return jsonify({'error': 'Invalid credits amount'}), 400
