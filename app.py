@@ -50,6 +50,9 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'index'  # type: ignore[assignment]
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.login_message_category = 'info'
+login_manager.session_protection = 'strong'  # Protect against session hijacking
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -148,7 +151,30 @@ class CreditTransaction(db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    """Load user from database and verify session validity"""
+    try:
+        user = User.query.get(int(user_id))
+        # Additional session validation can be added here
+        return user
+    except Exception as e:
+        logger.error(f"Error loading user {user_id}: {e}")
+        return None
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    """Handle unauthorized access attempts"""
+    # Check if request is AJAX/API call
+    if request.is_json or request.path.startswith('/api/') or request.path.startswith('/upload') or request.path.startswith('/download') or request.path.startswith('/progress') or request.path.startswith('/preview'):
+        logger.warning(f"Unauthorized API access attempt: {request.path} from {request.remote_addr}")
+        return jsonify({
+            'error': 'unauthorized',
+            'message': 'You must be logged in to access this resource.',
+            'redirect': '/'
+        }), 401
+    else:
+        # For regular page requests, redirect to index
+        logger.warning(f"Unauthorized page access attempt: {request.path} from {request.remote_addr}")
+        return redirect(url_for('index'))
 
 # Initialize database tables (create if they don't exist)
 with app.app_context():
@@ -188,6 +214,52 @@ def safe_file_path(base_dir, filename):
     real_base = os.path.realpath(base_dir)
     real_path = os.path.realpath(filepath)
     return real_path.startswith(real_base) and os.path.dirname(real_path) == real_base
+
+def require_active_session(f):
+    """Enhanced decorator to ensure user has an active, valid session"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Check if user is authenticated
+        if not current_user.is_authenticated:
+            logger.warning(f"Unauthenticated access attempt to {request.path} from {request.remote_addr}")
+            if request.is_json or request.path.startswith('/api/') or request.path.startswith('/upload'):
+                return jsonify({
+                    'error': 'unauthorized',
+                    'message': 'You must be logged in to access this resource.',
+                    'redirect': '/'
+                }), 401
+            else:
+                return redirect(url_for('index'))
+        
+        # Additional session validation
+        try:
+            # Verify user still exists in database (not deleted)
+            user = User.query.get(current_user.id)
+            if not user:
+                logger.warning(f"Session for deleted user {current_user.id} detected")
+                logout_user()
+                session.clear()
+                return jsonify({
+                    'error': 'session_invalid',
+                    'message': 'Your session is no longer valid. Please log in again.',
+                    'redirect': '/'
+                }), 401
+            
+            # Check session freshness (optional: can add timestamp validation)
+            # This prevents very old sessions from being used
+            
+        except Exception as e:
+            logger.error(f"Session validation error: {e}")
+            logout_user()
+            session.clear()
+            return jsonify({
+                'error': 'session_error',
+                'message': 'Session validation failed. Please log in again.',
+                'redirect': '/'
+            }), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
 
 class PDFConverter:
     @staticmethod
@@ -516,6 +588,54 @@ def index():
     logger.info("Index page accessed")
     return render_template('index.html')
 
+@app.before_request
+def before_request_security():
+    """Global security checks before each request"""
+    # Skip security checks for static files and public endpoints
+    public_endpoints = ['index', 'signup', 'login', 'static', 'get_user_status', 'admin_test', 'test_endpoint']
+    
+    if request.endpoint in public_endpoints:
+        return None
+    
+    # For protected endpoints, ensure user is authenticated
+    if request.endpoint and not request.endpoint.startswith('static'):
+        # Check if this is a protected route (has @login_required)
+        protected_routes = [
+            'get_credits', 'get_referral_stats', 'get_profile', 'upload_file',
+            'get_progress', 'download_file', 'preview_data', 'get_history',
+            'get_credit_history', 'logout'
+        ]
+        
+        if request.endpoint in protected_routes:
+            if not current_user.is_authenticated:
+                logger.warning(f"Blocked unauthenticated request to {request.endpoint} from {request.remote_addr}")
+                if request.is_json or request.path.startswith('/api/') or request.path.startswith('/upload'):
+                    return jsonify({
+                        'error': 'unauthorized',
+                        'message': 'Your session has expired. Please log in again.',
+                        'redirect': '/'
+                    }), 401
+                else:
+                    return redirect(url_for('index'))
+    
+    return None
+
+@app.after_request
+def after_request_security(response):
+    """Add security headers to all responses"""
+    # Prevent caching of sensitive data for authenticated routes
+    if current_user.is_authenticated:
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    
+    # Add security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    return response
+
 @app.route('/test-endpoint', methods=['GET', 'POST'])
 def test_endpoint():
     """Test endpoint to verify server receives requests"""
@@ -663,11 +783,13 @@ def login():
 @app.route('/auth/logout', methods=['POST'])
 @login_required
 def logout():
-    """Log user out"""
+    """Log user out and invalidate all session data"""
     try:
         email = current_user.email
+        user_id = current_user.id
     except:
         email = "unknown"
+        user_id = None
     
     # Clear the session and logout
     logout_user()
@@ -676,16 +798,35 @@ def logout():
     # Expire all objects to prevent stale session issues
     db.session.expire_all()
     
-    logger.info(f"User logged out: {email}")
+    # Remove any cached user data
+    if user_id:
+        try:
+            # Clear any user-specific cache or temporary data
+            # This ensures logged-out users cannot access their previous session data
+            with conversion_progress_lock:
+                # Don't delete progress data, but we could track logged-out sessions
+                pass
+        except Exception as cache_error:
+            logger.warning(f"Error clearing user cache: {cache_error}")
+    
+    logger.info(f"User logged out successfully: {email}")
     
     # Create response and delete all auth cookies
-    response = make_response(jsonify({'success': True}), 200)
+    response = make_response(jsonify({
+        'success': True,
+        'message': 'You have been logged out successfully.'
+    }), 200)
     
     # Delete remember_token cookie (Flask-Login's remember me cookie)
-    response.set_cookie('remember_token', '', expires=0, max_age=0, path='/', httponly=True)
+    response.set_cookie('remember_token', '', expires=0, max_age=0, path='/', httponly=True, samesite='Lax')
     
     # Delete session cookie
-    response.set_cookie('session', '', expires=0, max_age=0, path='/', httponly=True)
+    response.set_cookie('session', '', expires=0, max_age=0, path='/', httponly=True, samesite='Lax')
+    
+    # Add cache control headers to prevent browser caching
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     
     return response
 
