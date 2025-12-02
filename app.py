@@ -8,24 +8,34 @@ import secrets
 import string
 import re
 from pathlib import Path
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, make_response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-import pandas as pd
-import pdfplumber
 import uuid
-from datetime import datetime, timedelta
-from functools import wraps
+from flask_wtf.csrf import CSRFProtect
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, continue without it
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
-# Trigger full codebase review by CodeRabbit
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
+
+csrf = CSRFProtect(app)
+
+# Make CSRF token available in templates
+@app.context_processor
+def inject_csrf_token():
+    from flask_wtf.csrf import generate_csrf
+    return dict(csrf_token=lambda: generate_csrf())
 
 # Database configuration
 # Use PostgreSQL if DATABASE_URL is set (Render), otherwise SQLite for local dev
@@ -215,6 +225,8 @@ def safe_file_path(base_dir, filename):
     real_path = os.path.realpath(filepath)
     return real_path.startswith(real_base) and os.path.dirname(real_path) == real_base
 
+from functools import wraps
+
 def require_active_session(f):
     """Enhanced decorator to ensure user has an active, valid session"""
     @wraps(f)
@@ -320,7 +332,8 @@ class PDFConverter:
             # Open PDF with optional password
             with conversion_progress_lock:
                 conversion_progress[task_id] = {'status': 'processing', 'progress': 20, 'message': 'Opening PDF...'}
-            
+            import pdfplumber  # Fix: Ensure pdfplumber is imported
+
             try:
                 with pdfplumber.open(pdf_path, password=password) as pdf:
                     total_pages = len(pdf.pages)
@@ -365,10 +378,12 @@ class PDFConverter:
                                     if table and len(table) > 0:
                                         # Check if first row should be header
                                         if options.get('include_headers', True) and len(table) > 1:
+                                            import pandas as pd  # Fix: Ensure pandas is imported
                                             df = pd.DataFrame(table[1:], columns=table[0])  # type: ignore[arg-type]
                                         else:
+                                            import pandas as pd  # Fix: Ensure pandas is imported
                                             df = pd.DataFrame(table)
-                                        
+
                                         # Clean data if option is enabled
                                         if options.get('clean_data', True):
                                             df = PDFConverter.clean_dataframe(df)
@@ -592,7 +607,7 @@ def index():
 def before_request_security():
     """Global security checks before each request"""
     # Skip security checks for static files and public endpoints
-    public_endpoints = ['index', 'signup', 'login', 'static', 'get_user_status', 'admin_test', 'test_endpoint']
+    public_endpoints = ['index', 'signup', 'login', 'static', 'get_user_status', 'admin_test', 'test_endpoint', 'admin_check_credits', 'admin_add_credits', 'admin_panel']
     
     if request.endpoint in public_endpoints:
         return None
@@ -1003,12 +1018,13 @@ def upload_file():
             
             if file_size == 0:
                 return jsonify({'error': 'File is empty'}), 400
-            
             # Save uploaded file
-            filename = secure_filename(file.filename)
+            from werkzeug.utils import secure_filename
+
+            filename = secure_filename(file.filename or '')
             if not filename:
                 filename = 'uploaded.pdf'
-            
+
             temp_filename = f"{uuid.uuid4().hex}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
             
@@ -1258,6 +1274,7 @@ def admin_test():
     }), 200
 
 @app.route('/admin/check_credits', methods=['POST'])
+@csrf.exempt
 def admin_check_credits():
     """Admin endpoint to check user credits - requires admin key"""
     try:
@@ -1296,6 +1313,7 @@ def admin_check_credits():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/add_credits', methods=['POST'])
+@csrf.exempt
 def admin_add_credits():
     """Admin endpoint to add credits to users - requires admin key"""
     try:
@@ -1488,6 +1506,11 @@ def automatic_cleanup():
                 logger.info("Automatic cleanup completed")
         except Exception as e:
             logger.error(f"Automatic cleanup error: {e}", exc_info=True)
+
+@app.route('/admin')
+def admin_panel():
+    """Render the admin panel interface"""
+    return render_template('admin.html')
 
 if __name__ == '__main__':
     # Initialize database
