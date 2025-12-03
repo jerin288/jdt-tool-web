@@ -80,6 +80,7 @@ conversion_progress_lock = threading.Lock()
 conversion_results_lock = threading.Lock()
 file_history_lock = threading.Lock()
 credit_operation_lock = threading.Lock()  # New: Prevent race conditions in credit operations
+db_initialization_lock = threading.Lock()  # Prevent race conditions in database initialization
 
 # Store conversion progress with thread safety
 conversion_progress = {}
@@ -625,16 +626,21 @@ def index():
 def before_request_security():
     """Global security checks before each request"""
     # Retry database initialization if it failed at startup
+    # Use lock to prevent race conditions when multiple concurrent requests check/modify _db_initialized
     global _db_initialized
     if not _db_initialized:
-        try:
-            with app.app_context():
-                db.create_all()
-                _db_initialized = True
-                logger.info("Database tables initialized successfully on first request")
-        except Exception as e:
-            # Log as ERROR - this is a critical failure
-            logger.error(f"Database initialization retry failed: {e}", exc_info=True)
+        # Acquire lock to ensure only one thread initializes the database
+        with db_initialization_lock:
+            # Double-check pattern: re-check after acquiring lock in case another thread already initialized
+            if not _db_initialized:
+                try:
+                    with app.app_context():
+                        db.create_all()
+                        _db_initialized = True
+                        logger.info("Database tables initialized successfully on first request")
+                except Exception as e:
+                    # Log as ERROR - this is a critical failure
+                    logger.error(f"Database initialization retry failed: {e}", exc_info=True)
     
     # Skip security checks for static files and public endpoints
     public_endpoints = ['index', 'signup', 'login', 'static', 'get_user_status', 'admin_test', 'test_endpoint', 'admin_check_credits', 'admin_add_credits', 'admin_panel']
