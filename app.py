@@ -194,19 +194,23 @@ def unauthorized():
         return redirect(url_for('index'))
 
 # Initialize database tables (create if they don't exist)
-# Wrap in try-except to prevent crashes on import
+# Wrap in try-except to prevent crashes on import (serverless requirement)
+# But log as ERROR so monitoring systems catch critical failures
+_db_initialized = False
 try:
     with app.app_context():
         try:
             db.create_all()
+            _db_initialized = True
             logger.info("Database tables initialized successfully")
         except Exception as e:
-            # Don't crash if database connection fails at import time
-            # Will retry on first request
-            logger.warning(f"Database initialization warning: {e}")
-            logger.info("Database tables will be created on first request")
+            # Log as ERROR for monitoring/alerting, but don't crash on import
+            # Serverless functions need to allow import even if DB is temporarily unavailable
+            logger.error(f"Database initialization failed: {e}", exc_info=True)
+            logger.error("Database connection failed at startup. Will retry on first request.")
 except Exception as e:
-    logger.warning(f"App context initialization warning: {e}")
+    # Log app context errors as ERROR level
+    logger.error(f"App context initialization failed: {e}", exc_info=True)
 
 # Helper function to log credit transactions
 def log_credit_transaction(user, amount, transaction_type, description):
@@ -620,6 +624,18 @@ def index():
 @app.before_request
 def before_request_security():
     """Global security checks before each request"""
+    # Retry database initialization if it failed at startup
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            with app.app_context():
+                db.create_all()
+                _db_initialized = True
+                logger.info("Database tables initialized successfully on first request")
+        except Exception as e:
+            # Log as ERROR - this is a critical failure
+            logger.error(f"Database initialization retry failed: {e}", exc_info=True)
+    
     # Skip security checks for static files and public endpoints
     public_endpoints = ['index', 'signup', 'login', 'static', 'get_user_status', 'admin_test', 'test_endpoint', 'admin_check_credits', 'admin_add_credits', 'admin_panel']
     
