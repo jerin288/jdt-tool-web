@@ -198,20 +198,34 @@ def unauthorized():
 # Wrap in try-except to prevent crashes on import (serverless requirement)
 # But log as ERROR so monitoring systems catch critical failures
 _db_initialized = False
+
+# Defer database initialization to avoid import-time failures
+# This allows the app to import successfully even if database is temporarily unavailable
+def _init_database():
+    """Initialize database tables - called lazily"""
+    global _db_initialized
+    if _db_initialized:
+        return
+    
+    try:
+        with app.app_context():
+            try:
+                db.create_all()
+                _db_initialized = True
+                logger.info("Database tables initialized successfully")
+            except Exception as e:
+                # Log as ERROR for monitoring/alerting
+                logger.error(f"Database initialization failed: {e}", exc_info=True)
+                logger.error("Database connection failed. Will retry on first request.")
+    except Exception as e:
+        # Log app context errors as ERROR level
+        logger.error(f"App context initialization failed: {e}", exc_info=True)
+
+# Try to initialize, but don't fail if it doesn't work
 try:
-    with app.app_context():
-        try:
-            db.create_all()
-            _db_initialized = True
-            logger.info("Database tables initialized successfully")
-        except Exception as e:
-            # Log as ERROR for monitoring/alerting, but don't crash on import
-            # Serverless functions need to allow import even if DB is temporarily unavailable
-            logger.error(f"Database initialization failed: {e}", exc_info=True)
-            logger.error("Database connection failed at startup. Will retry on first request.")
+    _init_database()
 except Exception as e:
-    # Log app context errors as ERROR level
-    logger.error(f"App context initialization failed: {e}", exc_info=True)
+    logger.warning(f"Database initialization deferred: {e}")
 
 # Helper function to log credit transactions
 def log_credit_transaction(user, amount, transaction_type, description):
@@ -634,10 +648,7 @@ def before_request_security():
             # Double-check pattern: re-check after acquiring lock in case another thread already initialized
             if not _db_initialized:
                 try:
-                    with app.app_context():
-                        db.create_all()
-                        _db_initialized = True
-                        logger.info("Database tables initialized successfully on first request")
+                    _init_database()
                 except Exception as e:
                     # Log as ERROR - this is a critical failure
                     logger.error(f"Database initialization retry failed: {e}", exc_info=True)

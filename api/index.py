@@ -8,11 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # Set Vercel environment variable before importing app
 os.environ['VERCEL'] = '1'
 
-# Import Flask app
+# Import Flask app - Vercel will handle it automatically
 from app import app
 
-# Vercel Python runtime automatically handles Flask apps
-# Export the app as 'handler' or 'application'
-handler = app
-application = app
+# Vercel Python runtime automatically detects Flask apps
+# Just export the app instance directly
 
