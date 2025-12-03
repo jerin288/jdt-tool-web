@@ -1563,6 +1563,29 @@ def admin_panel():
 def test_db_connection():
     """Test endpoint to verify database connection"""
     try:
+        # Check DATABASE_URL configuration
+        db_url = os.environ.get('DATABASE_URL', 'NOT_SET')
+        # Mask password for security
+        if db_url != 'NOT_SET' and '@' in db_url:
+            parts = db_url.split('@')
+            if ':' in parts[0]:
+                user_pass = parts[0].split(':')
+                masked_url = f"{user_pass[0]}:***@{parts[1]}"
+            else:
+                masked_url = "INVALID_FORMAT"
+        else:
+            masked_url = db_url
+        
+        # Extract port from URL
+        port = "UNKNOWN"
+        if '@' in db_url and ':' in db_url:
+            try:
+                host_port = db_url.split('@')[1].split('/')[0]
+                if ':' in host_port:
+                    port = host_port.split(':')[1]
+            except:
+                pass
+        
         # Test database connection
         from sqlalchemy import text
         with db.engine.connect() as conn:
@@ -1590,16 +1613,43 @@ def test_db_connection():
             'postgres_version': version[:50],
             'tables_count': table_count,
             'users_count': user_count,
+            'database_url': masked_url,
+            'port': port,
             'database_url_set': bool(os.environ.get('DATABASE_URL')),
             'vercel_env': bool(os.environ.get('VERCEL'))
         }), 200
         
     except Exception as e:
         logger.error(f"Database connection test failed: {e}", exc_info=True)
+        
+        # Get masked URL for error response
+        db_url = os.environ.get('DATABASE_URL', 'NOT_SET')
+        if db_url != 'NOT_SET' and '@' in db_url:
+            parts = db_url.split('@')
+            if ':' in parts[0]:
+                user_pass = parts[0].split(':')
+                masked_url = f"{user_pass[0]}:***@{parts[1]}"
+            else:
+                masked_url = "INVALID_FORMAT"
+        else:
+            masked_url = db_url
+        
+        # Extract port
+        port = "UNKNOWN"
+        if '@' in db_url and ':' in db_url:
+            try:
+                host_port = db_url.split('@')[1].split('/')[0]
+                if ':' in host_port:
+                    port = host_port.split(':')[1]
+            except:
+                pass
+        
         return jsonify({
             'status': 'failed',
             'message': 'Database connection failed',
             'error': str(e),
+            'database_url': masked_url,
+            'port': port,
             'database_url_set': bool(os.environ.get('DATABASE_URL')),
             'vercel_env': bool(os.environ.get('VERCEL'))
         }), 500
