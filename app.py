@@ -1567,7 +1567,8 @@ def test_db_connection():
         from sqlalchemy import text
         with db.engine.connect() as conn:
             result = conn.execute(text("SELECT version();"))
-            version = result.fetchone()[0]
+            row = result.fetchone()
+            version = row[0] if row is not None else "Unknown"
             
             # Count tables
             result = conn.execute(text("""
@@ -1575,11 +1576,13 @@ def test_db_connection():
                 FROM information_schema.tables 
                 WHERE table_schema = 'public';
             """))
-            table_count = result.fetchone()[0]
+            table_row = result.fetchone()
+            table_count = table_row[0] if table_row is not None else 0
             
             # Count users
             result = conn.execute(text("SELECT COUNT(*) FROM users;"))
-            user_count = result.fetchone()[0]
+            user_row = result.fetchone()
+            user_count = user_row[0] if user_row is not None else 0
         
         return jsonify({
             'status': 'connected',
