@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ],
+  "env": {
+    "FLASK_APP": "app.py",
+    "FLASK_ENV": "production"
+  },
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60
+    }
+  }
+}
+

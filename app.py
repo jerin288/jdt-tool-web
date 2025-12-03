@@ -14,11 +14,11 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect  # type: ignore[import]
 
 # Load environment variables from .env file if it exists
 try:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv  # type: ignore[import]
     load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed, continue without it
@@ -26,7 +26,8 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
-app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+# Use /tmp on Vercel, otherwise system temp directory
+app.config['UPLOAD_FOLDER'] = '/tmp' if os.environ.get('VERCEL') else tempfile.gettempdir()
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 
 csrf = CSRFProtect(app)
@@ -34,26 +35,32 @@ csrf = CSRFProtect(app)
 # Make CSRF token available in templates
 @app.context_processor
 def inject_csrf_token():
-    from flask_wtf.csrf import generate_csrf
+    from flask_wtf.csrf import generate_csrf  # type: ignore[import]
     return dict(csrf_token=lambda: generate_csrf())
 
 # Database configuration
-# Use PostgreSQL if DATABASE_URL is set (Render), otherwise SQLite for local dev
+# Use PostgreSQL if DATABASE_URL is set (Vercel/Render), otherwise SQLite for local dev
 database_url = os.environ.get('DATABASE_URL')
 if database_url:
-    # PostgreSQL for production (Render)
+    # PostgreSQL for production (Vercel/Render)
     # Handle both postgres:// and postgresql:// schemes
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
-    # SQLite for local development
+    # SQLite for local development only
+    # Note: SQLite won't work on Vercel - DATABASE_URL must be set
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///jdt_users.db'
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Database connection pool settings
+# Optimized for serverless (Vercel) - smaller pool size
+is_vercel = os.environ.get('VERCEL', '') != ''
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 300,
+    'pool_size': 1 if is_vercel else 5,  # Smaller pool for serverless
+    'max_overflow': 0 if is_vercel else 10,  # No overflow on serverless
 }
 
 # Initialize extensions
@@ -187,12 +194,19 @@ def unauthorized():
         return redirect(url_for('index'))
 
 # Initialize database tables (create if they don't exist)
-with app.app_context():
-    try:
-        db.create_all()
-        logger.info("Database tables initialized successfully")
-    except Exception as e:
-        logger.error(f"Database initialization error: {e}", exc_info=True)
+# Wrap in try-except to prevent crashes on import
+try:
+    with app.app_context():
+        try:
+            db.create_all()
+            logger.info("Database tables initialized successfully")
+        except Exception as e:
+            # Don't crash if database connection fails at import time
+            # Will retry on first request
+            logger.warning(f"Database initialization warning: {e}")
+            logger.info("Database tables will be created on first request")
+except Exception as e:
+    logger.warning(f"App context initialization warning: {e}")
 
 # Helper function to log credit transactions
 def log_credit_transaction(user, amount, transaction_type, description):
@@ -1540,10 +1554,13 @@ if __name__ == '__main__':
             logger.warning(f"Credit history migration: {e}")
             db.session.rollback()
     
-    # Start automatic cleanup thread
-    cleanup_thread = threading.Thread(target=automatic_cleanup, daemon=True)
-    cleanup_thread.start()
-    logger.info("Automatic cleanup thread started (runs every 30 minutes)")
+    # Start automatic cleanup thread (skip on Vercel serverless)
+    if not os.environ.get('VERCEL'):
+        cleanup_thread = threading.Thread(target=automatic_cleanup, daemon=True)
+        cleanup_thread.start()
+        logger.info("Automatic cleanup thread started (runs every 30 minutes)")
+    else:
+        logger.info("Running on Vercel - background threads disabled")
     
     port = int(os.environ.get('PORT', 5000))
     debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
