@@ -1559,6 +1559,48 @@ def admin_panel():
     """Render the admin panel interface"""
     return render_template('admin.html')
 
+@app.route('/test-db-connection')
+def test_db_connection():
+    """Test endpoint to verify database connection"""
+    try:
+        # Test database connection
+        from sqlalchemy import text
+        with db.engine.connect() as conn:
+            result = conn.execute(text("SELECT version();"))
+            version = result.fetchone()[0]
+            
+            # Count tables
+            result = conn.execute(text("""
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public';
+            """))
+            table_count = result.fetchone()[0]
+            
+            # Count users
+            result = conn.execute(text("SELECT COUNT(*) FROM users;"))
+            user_count = result.fetchone()[0]
+        
+        return jsonify({
+            'status': 'connected',
+            'message': 'Database connection successful',
+            'postgres_version': version[:50],
+            'tables_count': table_count,
+            'users_count': user_count,
+            'database_url_set': bool(os.environ.get('DATABASE_URL')),
+            'vercel_env': bool(os.environ.get('VERCEL'))
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Database connection test failed: {e}", exc_info=True)
+        return jsonify({
+            'status': 'failed',
+            'message': 'Database connection failed',
+            'error': str(e),
+            'database_url_set': bool(os.environ.get('DATABASE_URL')),
+            'vercel_env': bool(os.environ.get('VERCEL'))
+        }), 500
+
 if __name__ == '__main__':
     # Initialize database
     with app.app_context():
