@@ -61,6 +61,10 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 300,
     'pool_size': 1 if is_vercel else 5,  # Smaller pool for serverless
     'max_overflow': 0 if is_vercel else 10,  # No overflow on serverless
+    'connect_args': {
+        'client_encoding': 'utf8',
+        'options': '-c statement_timeout=60000'  # 60 second timeout
+    }
 }
 
 # Initialize extensions
