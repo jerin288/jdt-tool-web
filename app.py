@@ -339,6 +339,31 @@ class PDFConverter:
         return sorted(list(pages))
     
     @staticmethod
+    def deduplicate_headers(headers):
+        """Deduplicate column headers to prevent DataFrame creation with duplicate columns"""
+        if not headers:
+            return headers
+        
+        seen = {}
+        new_headers = []
+        
+        for header in headers:
+            # Handle None/empty headers
+            header = str(header).strip() if header is not None else ""
+            if not header:
+                header = "Unnamed"
+            
+            if header in seen:
+                seen[header] += 1
+                new_header = f"{header}_{seen[header]}"
+            else:
+                seen[header] = 0
+                new_header = header
+            new_headers.append(new_header)
+            
+        return new_headers
+    
+    @staticmethod
     def clean_dataframe(df):
         """Clean dataframe by removing empty rows and columns"""
         if df.empty:
@@ -351,9 +376,10 @@ class PDFConverter:
         df = df.dropna(axis=1, how='all')
         
         # Strip whitespace from string columns
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.strip()
+        # Strip whitespace from string columns
+        # Use apply to safely handle columns and avoid 'DataFrame' object has no attribute 'dtype'
+        # which happens if there are duplicate column names
+        df = df.apply(lambda x: x.astype(str).str.strip() if x.dtype == 'object' else x)
         
         return df
     
@@ -416,7 +442,8 @@ class PDFConverter:
                                         # Check if first row should be header
                                         if options.get('include_headers', True) and len(table) > 1:
                                             import pandas as pd  # Fix: Ensure pandas is imported
-                                            df = pd.DataFrame(table[1:], columns=table[0])  # type: ignore[arg-type]
+                                            headers = PDFConverter.deduplicate_headers(table[0])
+                                            df = pd.DataFrame(table[1:], columns=headers)  # type: ignore[arg-type]
                                         else:
                                             import pandas as pd  # Fix: Ensure pandas is imported
                                             df = pd.DataFrame(table)
